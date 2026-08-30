@@ -1,13 +1,37 @@
 # Discord Quest Faker
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#ความต้องการ)
+[![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](package.json)
 
 โปรแกรมเล็ก ๆ ที่ **ดึงรายชื่อเกมที่ Discord ตรวจจับได้** จาก
 `https://discord.com/api/v10/applications/detectable` มาเก็บเป็นไฟล์ JSON
-แล้วสร้าง "โปรเซสเกมปลอม" ให้ Discord มองเห็นว่าเรากำลังเล่นเกมนั้นอยู่
-เพื่อให้ quest ประเภท *"เล่นเกม X เป็นเวลา Y นาที"* เดินหน้าไปได้
+แล้วสร้าง "โปรเซสเกมปลอม" ให้ Discord มองเห็นว่ากำลังเล่นเกมนั้นอยู่
+เพื่อให้ quest ประเภท *"เล่นเกม X เป็นเวลา Y นาที"* เดินหน้าไปได้ — ควบคุมทั้งหมดผ่านหน้าเว็บ
+บนเครื่องของคุณเอง
 
-ทำงานได้ทั้ง **Windows และ macOS** (รวมถึง Linux) — ใช้ Node.js ล้วน ๆ ไม่มี dependency ภายนอกสักตัว
+รองรับทั้ง **Windows และ macOS** (รวมถึง Linux) เขียนด้วย Node.js ล้วน ๆ **ไม่มี dependency
+ภายนอกแม้แต่ตัวเดียว** — ไม่ต้อง `npm install`
+
+<p align="center">
+  <img src="docs/screenshots/control-panel.png" alt="หน้าควบคุม Discord Quest Faker ขณะกำลังรัน Overwatch พร้อมรายการ preset และช่องค้นหาเกม" width="820">
+</p>
+
+---
+
+## สารบัญ
+
+- [⚠️ คำเตือนก่อนใช้งาน / Disclaimer](#️-คำเตือนก่อนใช้งาน--disclaimer)
+- [หลักการทำงาน](#หลักการทำงาน)
+- [ความต้องการ](#ความต้องการ)
+- [วิธีใช้](#วิธีใช้)
+- [config.json](#configjson)
+- [ไฟล์ที่โปรแกรมสร้าง](#ไฟล์ที่โปรแกรมสร้าง)
+- [ข้อจำกัดที่ควรรู้](#ข้อจำกัดที่ควรรู้)
+- [แก้ปัญหา](#แก้ปัญหา)
+- [โครงสร้างโค้ด](#โครงสร้างโค้ด)
+- [License](#license)
 
 ---
 
@@ -45,7 +69,8 @@ Discord ตรวจจับเกมด้วยการไล่ดู **pat
 ในลิสต์ detectable ของมันเอง เช่น Overwatch คือ `overwatch.exe`, League of Legends คือ
 `garenalolth/gamedata/apps/lolth/lolex.exe`
 
-โปรแกรมนี้จึงแค่สร้างไฟล์ที่มี **ชื่อและโครงสร้างโฟลเดอร์ตรงตามนั้น** แล้วรันทิ้งไว้:
+โปรแกรมนี้จึงแค่สร้างไฟล์ที่มี **ชื่อและโครงสร้างโฟลเดอร์ตรงตามนั้น** แล้วรันทิ้งไว้ โดยไล่ลอง
+ทีละชั้นตามลำดับความน่าเชื่อถือ ถ้าชั้นไหนใช้ไม่ได้จะเลื่อนไปชั้นถัดไปให้เองอัตโนมัติ:
 
 | ลำดับ | แพลตฟอร์ม | วิธีสร้างไฟล์ | ขนาด | RAM |
 |---|---|---|---|---|
@@ -54,8 +79,6 @@ Discord ตรวจจับเกมด้วยการไล่ดู **pat
 | 2 | macOS / Linux | ก๊อป `/bin/sleep` (ไม่มีหน้าต่าง) | ~150 KB | ~2 MB |
 | 3 | ทุกแพลตฟอร์ม | ก๊อป `node.exe` ตัวที่กำลังรัน (ไม่มีหน้าต่าง) | ~90 MB | ~35 MB |
 
-ไล่จากบนลงล่าง ถ้าชั้นไหนใช้ไม่ได้จะเลื่อนไปชั้นถัดไปให้เองอัตโนมัติ
-
 ### สำคัญที่สุด: ต้องมีหน้าต่างจริง
 
 **Discord ไม่ได้ดูแค่ชื่อโปรเซส — มันมองหาโปรเซสที่เป็นเจ้าของหน้าต่างที่มองเห็นได้ด้วย**
@@ -63,7 +86,12 @@ Discord ตรวจจับเกมด้วยการไล่ดู **pat
 
 placeholder ที่คอมไพล์เองจึงเปิด **หน้าต่างจริงพร้อม message loop** โดยตั้ง title เป็นชื่อเกม
 (แนวทางเดียวกับ [discord-quest-completer](https://github.com/markterence/discord-quest-completer)
-ที่ใช้ `CreateWindowExW` + `ShowWindow(hWnd, SW_SHOWNORMAL)` + message loop ใน WinAPI)
+ที่ใช้ `CreateWindowExW` + `ShowWindow(hWnd, SW_SHOWNORMAL)` + message loop ใน WinAPI) พร้อม
+แสดงรูปเกม เวลาที่เดินมาแล้ว และเวลาที่เหลือก่อน auto-stop:
+
+<p align="center">
+  <img src="docs/screenshots/placeholder-window.png" alt="หน้าต่างโปรเซสปลอมของ Overwatch แสดงไอคอนเกม เวลาที่รันมาแล้ว และสถานะ auto-stop" width="440">
+</p>
 
 > **ปิดหน้าต่าง = หยุดเกมนั้น** เหมือนกดปุ่ม Stop ในหน้าเว็บ โปรแกรมจะไม่เปิดขึ้นมาใหม่ให้
 
@@ -122,8 +150,8 @@ chmod +x start.sh && ./start.sh
 กด **★** เพื่อบันทึกเกมลง `config.json` เป็น preset แล้วครั้งต่อไปกดปุ่มเดียวรันได้เลย
 (จะลบ preset ทิ้ง กดปุ่ม **Remove** ในกล่อง Presets)
 
-กด Start แล้วจะมี **หน้าต่างเล็ก ๆ ชื่อเกมนั้นเด้งขึ้นมา** — นั่นคือโปรเซสปลอมที่ Discord ต้องเห็น
-ปล่อยเปิดไว้ อย่าปิด (ปิดหน้าต่าง = หยุดเกมนั้น เท่ากับกด Stop)
+กด Start แล้วจะมี **หน้าต่างเล็ก ๆ ชื่อเกมนั้นเด้งขึ้นมา** (ดูตัวอย่างด้านบน) — นั่นคือโปรเซสปลอม
+ที่ Discord ต้องเห็น ปล่อยเปิดไว้ อย่าปิด (ปิดหน้าต่าง = หยุดเกมนั้น เท่ากับกด Stop)
 
 ในหน้าต่างนั้นจะเห็น **รูปเกม**, ชื่อไฟล์ที่กำลังปลอมเป็น, **เวลาที่เดินมาแล้ว** (นับทุกวินาที)
 และบรรทัด **Auto-stop** ที่บอกว่าเหลืออีกกี่นาทีจะหยุดเอง — ถ้าไม่ได้ตั้งไว้จะขึ้นว่า `off`
