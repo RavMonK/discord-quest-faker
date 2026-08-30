@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { spawn, spawnSync, execFile } = require('child_process');
 const { OS_KEY } = require('./games');
 
@@ -19,6 +20,60 @@ const KEEPALIVE_SOURCE = [
 // replaced. The cap only exists so a permanently broken placeholder cannot spin forever.
 const MAX_RESTARTS = 500;
 
+// Bumped whenever the C# source below changes, so every cached placeholder is rebuilt once.
+const PLACEHOLDER_BUILD = 2;
+
+// Game icons come from Discord's and Steam's CDN. Anything much larger than this is not one.
+const MAX_ICON_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Download `url` to `target`, following redirects.
+ * The bytes land under a temporary name and are renamed into place, because the placeholder
+ * window polls for this file and must never read a half-written one.
+ */
+function downloadFile(url, target, redirects) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (discord-quest-faker)' }
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        if ((redirects || 0) >= 4) return reject(new Error('too many redirects'));
+        return resolve(downloadFile(new URL(res.headers.location, url).toString(), target, (redirects || 0) + 1));
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error('HTTP ' + res.statusCode));
+      }
+
+      const chunks = [];
+      let size = 0;
+      res.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > MAX_ICON_BYTES) {
+          request.destroy(new Error('image is larger than ' + MAX_ICON_BYTES + ' bytes'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        const temp = target + '.part';
+        try {
+          fs.writeFileSync(temp, Buffer.concat(chunks));
+          fs.renameSync(temp, target);
+          resolve(target);
+        } catch (err) {
+          reject(err);
+        }
+      });
+      res.on('error', reject);
+    });
+
+    request.setTimeout(8000, () => request.destroy(new Error('timed out')));
+    request.on('error', reject);
+  });
+}
+
 /**
  * Discord detects games by reading the executable path of every running process and matching
  * it against the "executables" entries of the detectable list. To look like a game is running
@@ -32,6 +87,7 @@ class Spoofer {
   constructor(config) {
     this.config = config;
     this.running = new Map(); // application id -> session
+    this.iconFetches = new Set(); // icon files being downloaded right now
     this.keepalivePath = path.join(config.runtimePath, 'keepalive.js');
     fs.mkdirSync(config.runtimePath, { recursive: true });
     fs.writeFileSync(this.keepalivePath, KEEPALIVE_SOURCE, 'utf8');
@@ -105,18 +161,27 @@ class Spoofer {
     if (fs.existsSync(target) && fs.existsSync(stampPath)) {
       try {
         const stamp = JSON.parse(fs.readFileSync(stampPath, 'utf8'));
-        if (stamp.name === name && stamp.size === fs.statSync(target).size) return target;
+        if (stamp.name === name && stamp.build === PLACEHOLDER_BUILD
+          && stamp.size === fs.statSync(target).size) return target;
       } catch (err) { /* rebuild */ }
     }
 
     const sourcePath = path.join(buildDir, Spoofer.signalToken('s', target) + '.cs');
     const fileName = Spoofer.csharpString(path.basename(target));
+    // Stands in for the icon until it is downloaded, and forever if there is none.
+    const initial = Spoofer.csharpString(String(displayName || '').trim().charAt(0).toUpperCase() || '?');
 
     // The window is the point: Discord's detection wants a process that owns a real, visible
     // window with a running message loop, not just a process with a matching executable name.
+    //
+    // What the window shows beyond that is for the person running it: the game's icon, how
+    // long the session has been going, and when it stops by itself. Those are passed as
+    // command line arguments rather than compiled in, so one build serves every session.
     fs.writeFileSync(sourcePath, '\ufeff' + [
       'using System;',
       'using System.Drawing;',
+      'using System.Globalization;',
+      'using System.IO;',
       'using System.Reflection;',
       'using System.Windows.Forms;',
       '',
@@ -128,36 +193,180 @@ class Spoofer {
       '',
       'internal static class Placeholder',
       '{',
+      '    private static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);',
+      '',
+      '    private static Form form;',
+      '    private static PictureBox art;',
+      '    private static Label initial;',
+      '    private static Label elapsed;',
+      '    private static Label remaining;',
+      '    private static DateTime started = DateTime.UtcNow;',
+      '    private static double durationMinutes;',
+      '    private static string iconPath;',
+      '    private static int ticks;',
+      '',
       '    [STAThread]',
-      '    private static void Main()',
+      '    private static void Main(string[] argv)',
       '    {',
+      '        ReadArguments(argv);',
       '        Application.EnableVisualStyles();',
       '',
-      '        Form form = new Form();',
+      '        form = new Form();',
       '        form.Text = "' + name + '";',
-      '        form.ClientSize = new Size(430, 132);',
+      '        form.ClientSize = new Size(468, 162);',
       '        form.StartPosition = FormStartPosition.CenterScreen;',
       '        form.FormBorderStyle = FormBorderStyle.FixedSingle;',
       '        form.MaximizeBox = false;',
       '        form.BackColor = Color.FromArgb(35, 36, 40);',
       '',
+      '        art = new PictureBox();',
+      '        art.SetBounds(26, 24, 72, 72);',
+      '        art.SizeMode = PictureBoxSizeMode.Zoom;',
+      '        art.BackColor = Color.FromArgb(45, 47, 52);',
+      '',
+      '        initial = new Label();',
+      '        initial.Text = "' + initial + '";',
+      '        initial.Font = new Font("Segoe UI", 24F, FontStyle.Bold);',
+      '        initial.ForeColor = Color.FromArgb(118, 123, 132);',
+      '        initial.SetBounds(0, 0, 72, 72);',
+      '        initial.TextAlign = ContentAlignment.MiddleCenter;',
+      '        art.Controls.Add(initial);',
+      '',
       '        Label title = new Label();',
       '        title.Text = "' + name + '";',
       '        title.Font = new Font("Segoe UI", 13F, FontStyle.Bold);',
       '        title.ForeColor = Color.White;',
-      '        title.SetBounds(0, 22, 430, 30);',
-      '        title.TextAlign = ContentAlignment.MiddleCenter;',
+      '        title.SetBounds(114, 22, 330, 28);',
+      '        title.TextAlign = ContentAlignment.MiddleLeft;',
+      '        title.AutoEllipsis = true;',
+      '',
+      '        Label file = new Label();',
+      '        file.Text = "' + fileName + '";',
+      '        file.Font = new Font("Segoe UI", 9F);',
+      '        file.ForeColor = Color.FromArgb(154, 160, 168);',
+      '        file.SetBounds(116, 50, 328, 18);',
+      '        file.TextAlign = ContentAlignment.MiddleLeft;',
+      '        file.AutoEllipsis = true;',
+      '',
+      '        elapsed = Value(76);',
+      '        elapsed.ForeColor = Color.FromArgb(226, 229, 234);',
+      '        remaining = Value(98);',
       '',
       '        Label note = new Label();',
-      '        note.Text = "' + fileName + '\\r\\nDiscord Quest Faker placeholder - keep this window open.";',
-      '        note.Font = new Font("Segoe UI", 9F);',
-      '        note.ForeColor = Color.FromArgb(154, 160, 168);',
-      '        note.SetBounds(0, 58, 430, 50);',
+      '        note.Text = "Discord Quest Faker placeholder - keep this window open.";',
+      '        note.Font = new Font("Segoe UI", 8.5F);',
+      '        note.ForeColor = Color.FromArgb(118, 123, 132);',
+      '        note.SetBounds(0, 128, 468, 20);',
       '        note.TextAlign = ContentAlignment.MiddleCenter;',
       '',
+      '        form.Controls.Add(art);',
       '        form.Controls.Add(title);',
+      '        form.Controls.Add(file);',
+      '        form.Controls.Add(Caption("Running", 76));',
+      '        form.Controls.Add(Caption("Auto-stop", 98));',
+      '        form.Controls.Add(elapsed);',
+      '        form.Controls.Add(remaining);',
       '        form.Controls.Add(note);',
+      '',
+      '        Timer timer = new Timer();',
+      '        timer.Interval = 1000;',
+      '        timer.Tick += Tick;',
+      '        timer.Start();',
+      '        Tick(null, EventArgs.Empty);',
+      '',
       '        Application.Run(form);',
+      '    }',
+      '',
+      '    private static void ReadArguments(string[] argv)',
+      '    {',
+      '        for (int i = 0; i + 1 < argv.Length; i += 2)',
+      '        {',
+      '            string value = argv[i + 1];',
+      '            if (argv[i] == "--icon")',
+      '            {',
+      '                iconPath = value == "-" ? null : value;',
+      '            }',
+      '            else if (argv[i] == "--started")',
+      '            {',
+      '                double ms;',
+      '                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out ms)) started = Epoch.AddMilliseconds(ms);',
+      '            }',
+      '            else if (argv[i] == "--duration")',
+      '            {',
+      '                double minutes;',
+      '                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out minutes)) durationMinutes = minutes;',
+      '            }',
+      '        }',
+      '    }',
+      '',
+      '    private static Label Caption(string text, int top)',
+      '    {',
+      '        Label label = new Label();',
+      '        label.Text = text;',
+      '        label.Font = new Font("Segoe UI", 9F);',
+      '        label.ForeColor = Color.FromArgb(132, 137, 145);',
+      '        label.SetBounds(116, top, 76, 20);',
+      '        label.TextAlign = ContentAlignment.MiddleLeft;',
+      '        return label;',
+      '    }',
+      '',
+      '    private static Label Value(int top)',
+      '    {',
+      '        Label label = new Label();',
+      '        label.Font = new Font("Consolas", 10F);',
+      '        label.ForeColor = Color.FromArgb(154, 160, 168);',
+      '        label.SetBounds(194, top, 250, 20);',
+      '        label.TextAlign = ContentAlignment.MiddleLeft;',
+      '        return label;',
+      '    }',
+      '',
+      '    private static void Tick(object sender, EventArgs e)',
+      '    {',
+      '        TimeSpan since = DateTime.UtcNow - started;',
+      '        elapsed.Text = Clock(since);',
+      '',
+      '        if (durationMinutes > 0)',
+      '        {',
+      '            TimeSpan left = TimeSpan.FromMinutes(durationMinutes) - since;',
+      '            remaining.Text = left.Ticks > 0',
+      '                ? Clock(left) + " left of " + durationMinutes.ToString("0.##", CultureInfo.InvariantCulture) + " min"',
+      '                : "stopping now";',
+      '        }',
+      '        else',
+      '        {',
+      '            remaining.Text = "off";',
+      '        }',
+      '',
+      '        LoadIcon();',
+      '    }',
+      '',
+      '    private static string Clock(TimeSpan span)',
+      '    {',
+      '        if (span.Ticks < 0) span = TimeSpan.Zero;',
+      '        return string.Format(CultureInfo.InvariantCulture, "{0:00}:{1:00}:{2:00}", (int)span.TotalHours, span.Minutes, span.Seconds);',
+      '    }',
+      '',
+      '    // The icon is downloaded in the background so a slow CDN never delays the game, which',
+      '    // means it can land after this window is already up. Watch for it, then give up.',
+      '    private static void LoadIcon()',
+      '    {',
+      '        ticks++;',
+      '        if (iconPath == null || art.Image != null || ticks > 90 || !File.Exists(iconPath)) return;',
+      '',
+      '        try',
+      '        {',
+      '            using (FileStream stream = new FileStream(iconPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))',
+      '            using (Image image = Image.FromStream(stream))',
+      '            {',
+      '                art.Image = new Bitmap(image);',
+      '                using (Bitmap small = new Bitmap(image, 32, 32)) form.Icon = Icon.FromHandle(small.GetHicon());',
+      '            }',
+      '            initial.Visible = false;',
+      '        }',
+      '        catch (Exception)',
+      '        {',
+      '            // unreadable for now - the next tick tries again',
+      '        }',
       '    }',
       '}',
       ''
@@ -175,7 +384,49 @@ class Spoofer {
       throw new Error('csc failed: ' + String(result.stderr || result.stdout || result.error || '').trim().split('\n')[0]);
     }
 
-    fs.writeFileSync(stampPath, JSON.stringify({ name, size: fs.statSync(target).size }), 'utf8');
+    fs.writeFileSync(stampPath, JSON.stringify({
+      name,
+      build: PLACEHOLDER_BUILD,
+      size: fs.statSync(target).size
+    }), 'utf8');
+    return target;
+  }
+
+  /** Where the game's picture comes from - the same sources the control panel draws. */
+  static iconUrl(game) {
+    const url = game.iconUrl
+      || (game.icon ? 'https://cdn.discordapp.com/app-icons/' + game.id + '/' + game.icon + '.png?size=128' : null);
+    return url && /^https:\/\//i.test(url) ? url : null;
+  }
+
+  /**
+   * Local path of the game's picture, downloading it once if it is not cached yet.
+   * The path is returned straight away even while the download runs: the placeholder window
+   * polls for the file, so nothing has to wait on the network before the game "starts".
+   */
+  ensureIcon(game) {
+    const url = Spoofer.iconUrl(game);
+    if (!url) return null;
+
+    const dir = path.join(this.config.runtimePath, '_icons');
+    const target = path.join(dir, Spoofer.safeName(game.id) + '.img');
+
+    try {
+      if (fs.statSync(target).size > 0) return target;
+    } catch (err) { /* not downloaded yet */ }
+
+    if (!this.iconFetches.has(target)) {
+      this.iconFetches.add(target);
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        downloadFile(url, target)
+          .catch((err) => console.warn('[spoof] no picture for "' + game.name + '" (' + err.message + ')'))
+          .then(() => this.iconFetches.delete(target));
+      } catch (err) {
+        this.iconFetches.delete(target);
+        return null;
+      }
+    }
     return target;
   }
 
@@ -186,6 +437,14 @@ class Spoofer {
       hash = ((hash * 33) ^ executableName.charCodeAt(i)) >>> 0;
     }
     return 'DQF' + String(gameId).replace(/[^0-9a-z]/gi, '') + hash.toString(36);
+  }
+
+  /**
+   * A game id ("steam:3787240") or executable name is arbitrary third-party text, so keep it
+   * away from the file system's sharp edges before it becomes part of a path.
+   */
+  static safeName(value) {
+    return String(value).replace(/[^0-9a-zA-Z._-]/g, '_');
   }
 
   /** One session per executable, so the same game can run several of them at once. */
@@ -236,9 +495,7 @@ class Spoofer {
     const relative = exe.name.replace(/\\/g, '/').replace(/^\/+/, '');
     const dir = path.posix.dirname(relative);
     const base = path.posix.basename(relative);
-    // custom ids look like "steam:3787240" and executable names come from a third party,
-    // so keep both away from the file system's sharp edges
-    const gameDirName = String(game.id).replace(/[^0-9a-zA-Z._-]/g, '_');
+    const gameDirName = Spoofer.safeName(game.id);
     const parents = (dir === '.' ? [] : dir.split('/')).filter((p) => p && p !== '.' && p !== '..');
     let target;
 
@@ -274,11 +531,22 @@ class Spoofer {
    * Put a working placeholder at `target` using the given tier and return the arguments it
    * needs. Throws if this tier cannot be used, which makes the caller try the next one.
    */
-  provision(target, tier, game, exe) {
+  provision(target, tier, game, exe, session) {
     if (tier === 'compiled') {
       this.compile(target, game.name);
-      // A windowed app only quits when its window is closed, so that counts as a stop.
-      return { args: [], hasWindow: true, hideWindow: false, restartOnExit: false };
+      // What the window shows about this particular run travels as arguments, so the compiled
+      // file stays the same across sessions and does not have to be rebuilt for each one.
+      return {
+        args: [
+          '--icon', this.ensureIcon(game) || '-',
+          '--started', String(session.startedAt),
+          '--duration', String(session.durationMinutes)
+        ],
+        // A windowed app only quits when its window is closed, so that counts as a stop.
+        hasWindow: true,
+        hideWindow: false,
+        restartOnExit: false
+      };
     }
 
     if (tier === 'system') {
@@ -414,7 +682,7 @@ class Spoofer {
       for (let i = fromTier; i < tiers.length; i += 1) {
         let plan;
         try {
-          plan = this.provision(fakePath, tiers[i], game, exe);
+          plan = this.provision(fakePath, tiers[i], game, exe, session);
         } catch (err) {
           lastError = err;
           console.error('[spoof] ' + label + ': ' + tiers[i] + ' placeholder unavailable (' + err.message + ')');

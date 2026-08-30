@@ -75,7 +75,14 @@ Three constraints were each learned by breaking them. Do not "simplify" past the
    The primary tier compiles a real 5 KB WinForms app with `csc.exe` (ships with the .NET
    Framework) whose message loop keeps a titled window open, and it is spawned with
    `windowsHide: false`. This mirrors what `discord-quest-completer`'s WinAPI runner does
-   (`CreateWindowExW` + `ShowWindow(SW_SHOWNORMAL)` + message loop).
+   (`CreateWindowExW` + `ShowWindow(SW_SHOWNORMAL)` + message loop). What that window *shows*
+   (game icon, elapsed clock, auto-stop countdown) arrives as command line arguments
+   (`--icon <path|-> --started <epoch ms> --duration <minutes>`), never compiled in, so one
+   build serves every session and the ~800 ms compile stays cached. Changing the C# source
+   means bumping `PLACEHOLDER_BUILD` — the stamp file is what decides a rebuild.
+   `ensureIcon()` downloads the icon once into `data/runtime/_icons/` in the background and
+   returns the path immediately; the window polls for the file for ~90 s and otherwise shows
+   the game's initial. Starting a game must never wait on a CDN.
 2. **The executable path must match the detectable entry's tail, not just its basename.**
    Entries like `_retail_/wow-64.exe` or `garenalolth/gamedata/apps/lolth/lolex.exe` need their
    directory prefix recreated under `data/runtime/<game id>/`. macOS `.app` entries get a minimal
