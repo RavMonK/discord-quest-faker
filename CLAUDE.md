@@ -22,13 +22,26 @@ node src/index.js --add-steam <steam app id or URL> [--force]
 node src/index.js --help
 ```
 
-There is no test runner, linter, or build step. Verification is manual:
+There is no linter or build step. A test suite exists but is deliberately narrow:
 
 ```bash
+npm test                          # node's built-in test runner (node:test), zero deps added
 node --check src/spoof.js         # syntax check a file
 ```
 
-Behaviour is verified against the OS, not through unit tests. The checks that matter:
+`tests/` covers only pure, deterministic logic that is safe to run without touching the real
+project state: `games.js`'s `normalize()`/`fold()`/`GameStore` (constructed with a temp-dir
+config, never the real `config.json`), `spoof.js`'s path/name helpers (`materialize()`,
+`safeName()`, `signalToken()`, `candidates()`/`select()`) and `startOne()`'s synchronous guards
+(already-running, `maxConcurrent`), and `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
+`executablesInArguments`, `osKeysFor`). It deliberately does **not** cover: `config.js`'s
+`load()`/`save()` (they hardcode the real `config.json` path under the project root — there is no
+way to point them at a temp file, so testing them would risk clobbering the user's actual config),
+anything that spawns a real placeholder or invokes `csc.exe` (OS/environment-dependent, exactly
+what the manual OS checks below are for), and the `src/public/` frontend (plain browser script
+with no module exports and no DOM in the test process — simulating one would mean adding a
+dependency like jsdom, which breaks the zero-npm-deps rule). Behaviour beyond that boundary is
+still verified against the OS, not through unit tests. The checks that matter:
 
 ```powershell
 Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*data\runtime*" } |

@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node src/index.js",
     "headless": "node src/index.js --headless",
-    "refresh": "node src/index.js --refresh"
+    "refresh": "node src/index.js --refresh",
+    "test": "node --test"
   },
   "engines": { "node": ">=18.0.0" },
   "dependencies": {}
