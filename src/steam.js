@@ -121,4 +121,4 @@ async function fetchGame(input) {
   };
 }
 
-module.exports = { fetchGame, parseAppId, APPINFO_API };
+module.exports = { fetchGame, parseAppId, normalizeExecutable, executablesInArguments, osKeysFor, APPINFO_API };

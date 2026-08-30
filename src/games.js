@@ -49,6 +49,9 @@ function normalize(rawList) {
 
     const executables = app.executables
       .filter((exe) => exe && typeof exe.name === 'string' && exe.name.length > 0)
+      // Discord's list is developer-submitted; a ".." segment would let it escape the
+      // per-game directory materialize() builds it under.
+      .filter((exe) => !exe.name.replace(/\\/g, '/').split('/').some((part) => part === '..'))
       .map((exe) => ({
         name: exe.name,
         os: exe.os || 'win32',

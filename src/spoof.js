@@ -495,6 +495,9 @@ class Spoofer {
     const relative = exe.name.replace(/\\/g, '/').replace(/^\/+/, '');
     const dir = path.posix.dirname(relative);
     const base = path.posix.basename(relative);
+    if (!base || base === '.' || base === '..') {
+      throw new Error('unsafe executable name: ' + exe.name);
+    }
     const gameDirName = Spoofer.safeName(game.id);
     const parents = (dir === '.' ? [] : dir.split('/')).filter((p) => p && p !== '.' && p !== '..');
     let target;
@@ -752,7 +755,13 @@ class Spoofer {
               + 's - restarting (#' + session.restarts + ')');
             if (retry(i)) return;
           } else if (!plan.restartOnExit) {
-            console.log('[spoof] ' + label + ': window closed - session ended');
+            // A windowed placeholder normally exits with code 0 when its window is closed.
+            // A non-zero code past the 2s grace period is a crash (e.g. an unhandled exception
+            // in the compiled placeholder), not a user closing the window - say so, since the
+            // session still ends either way and the log line is the only trace of which one it was.
+            console.log(code === 0
+              ? '[spoof] ' + label + ': window closed - session ended'
+              : '[spoof] ' + label + ': placeholder crashed unexpectedly (code=' + code + ') - session ended');
           }
 
           console.log('[spoof] ' + label + ' stopped running (code=' + code + ' signal=' + signal + ')');

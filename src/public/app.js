@@ -98,11 +98,20 @@ function row(game, extras) {
   return el;
 }
 
+/**
+ * A row action button. Disabled for the duration of its click handler so a slow start/stop
+ * cannot be double-fired by an impatient extra click - the row is re-rendered on completion
+ * anyway, so re-enabling a stale, detached button is harmless.
+ */
 function button(label, className, onClick) {
   const btn = document.createElement('button');
   btn.className = 'btn small ' + className;
   btn.textContent = label;
-  btn.addEventListener('click', onClick);
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    Promise.resolve(onClick()).finally(() => { btn.disabled = false; });
+  });
   return btn;
 }
 
@@ -378,7 +387,7 @@ function executableRows(game, durationMinutes) {
   const wrap = document.createElement('div');
   wrap.className = 'exe-list';
 
-  game.executables.forEach((exe) => {
+  (game.executables || []).forEach((exe) => {
     const session = runningFor(game.id, exe.name)[0];
     const item = document.createElement('div');
     item.className = 'exe-row' + (session ? ' live' : '');
@@ -406,8 +415,13 @@ function executableRows(game, durationMinutes) {
 
 /** Render one game into the results list, plus its executable sub-rows when expanded. */
 function appendResultRow(container, game) {
+  // never let one odd entry (e.g. a custom/Steam game with no parsed executables) blank the
+  // whole list - the same failure mode renderPresets used to have.
+  const executables = game.executables || [];
+  if (executables.length === 0) return;
+
   const sessions = runningFor(game.id);
-  const multi = game.executables.length > 1;
+  const multi = executables.length > 1;
   const saved = state.presets.some((p) => String(p.id) === String(game.id));
 
   const star = document.createElement('button');
@@ -430,13 +444,13 @@ function appendResultRow(container, game) {
     actions.push(button(sessions.length > 1 ? 'Stop all (' + sessions.length + ')' : 'Stop', 'danger',
       () => stopGame({ id: game.id })));
   } else {
-    actions.push(button('Start', 'primary', () => startGame(game, game.executables[0].name)));
+    actions.push(button('Start', 'primary', () => startGame(game, executables[0].name)));
   }
 
   const subtitle = multi
-    ? game.executables.length + ' executables'
-      + (sessions.length ? '  ·  ' + sessions.length + ' running' : '  ·  starts ' + game.executables[0].name)
-    : game.executables[0].name;
+    ? executables.length + ' executables'
+      + (sessions.length ? '  ·  ' + sessions.length + ' running' : '  ·  starts ' + executables[0].name)
+    : executables[0].name;
 
   const el = row(game, { live: sessions.length > 0, subtitle, actions });
 
@@ -594,12 +608,20 @@ $('refreshBtn').addEventListener('click', async (event) => {
   }
 });
 
-$('stopAllBtn').addEventListener('click', async () => {
-  const data = await api('/api/stop-all', { method: 'POST' });
-  state.running = data.running;
-  renderRunning();
-  renderResults();
-  renderPresets();
+$('stopAllBtn').addEventListener('click', async (event) => {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  try {
+    const data = await api('/api/stop-all', { method: 'POST' });
+    state.running = data.running;
+    renderRunning();
+    renderResults();
+    renderPresets();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 
@@ -626,6 +648,21 @@ setInterval(async () => {
     }
   } catch (err) { /* server restarting */ }
 }, 5000);
+
+/* ---------------- risk disclaimer ---------------- */
+
+const DISCLAIMER_KEY = 'discord-quest-faker:disclaimer-dismissed';
+
+function initDisclaimer() {
+  let dismissed = false;
+  try { dismissed = localStorage.getItem(DISCLAIMER_KEY) === '1'; } catch (err) { /* private mode etc. */ }
+  $('disclaimer').hidden = dismissed;
+  $('disclaimerDismiss').addEventListener('click', () => {
+    $('disclaimer').hidden = true;
+    try { localStorage.setItem(DISCLAIMER_KEY, '1'); } catch (err) { /* best effort */ }
+  });
+}
+initDisclaimer();
 
 (async function init() {
   try {
