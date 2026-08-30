@@ -153,21 +153,49 @@ async function stopGame(body) {
   }
 }
 
+function showSteamNote(text, forceInput) {
+  $('steamNoteText').textContent = text;
+  $('steamNote').hidden = false;
+  const force = $('steamForce');
+  force.hidden = !forceInput;
+  force.onclick = forceInput ? () => addCustomGame(forceInput, true) : null;
+}
+
+function clearSteamNote() {
+  $('steamNote').hidden = true;
+  $('steamForce').hidden = true;
+}
+
 /** Look a game up on Steam when Discord's detectable list does not have it. */
-async function addCustomGame(input) {
-  const field = $('steamInput');
+async function addCustomGame(input, force) {
   const btn = $('steamAdd');
   if (!input) return;
 
   btn.disabled = true;
   btn.textContent = 'Looking up…';
-  try {
-    const data = await api('/api/custom', { method: 'POST', body: JSON.stringify({ input }) });
-    field.value = '';
+  clearSteamNote();
 
-    // Discord already knows this game - jump to its entry instead of keeping a dead one
+  try {
+    const data = await api('/api/custom', {
+      method: 'POST',
+      body: JSON.stringify({ input, force: Boolean(force) })
+    });
+
+    // Discord already knowing the game is the good outcome, not a failure: its entry is the
+    // only one a quest counts, so open that instead of saving a copy that never gets detected.
     const target = data.added ? data.game : data.useInstead;
-    toast(data.note, data.added ? 'ok' : 'error');
+
+    if (data.added) {
+      $('steamInput').value = '';
+      toast('Added ' + target.name + ' from Steam', 'ok');
+      showSteamNote('Saved to data/custom-games.json · '
+        + target.executables.map((e) => e.name || e).join(', '));
+    } else {
+      toast(target.name + ' is already in Discord’s list — showing it below', 'ok');
+      showSteamNote(target.name + ' is already in Discord’s list ('
+        + target.executables.join(', ') + '), so it is ready to use as-is. '
+        + 'A Steam copy would not count towards a quest.', input);
+    }
 
     $('search').value = target.name;
     await loadState();
@@ -176,6 +204,7 @@ async function addCustomGame(input) {
     renderResults();
   } catch (err) {
     toast(err.message, 'error');
+    showSteamNote(err.message);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Add';

@@ -175,6 +175,10 @@ https://store.steampowered.com/app/570/      → Dota 2
 เกมที่เพิ่มเองจะติดป้าย `STEAM` เก็บไว้ที่ `data/custom-games.json` (ไม่หายตอน refresh ลิสต์)
 และลบได้ด้วยปุ่ม **✕**
 
+**ถ้าเกมนั้นมีใน Discord อยู่แล้ว** โปรแกรมจะไม่สร้าง entry ซ้ำ แต่จะพาไปที่ entry ของ Discord ให้
+พร้อมข้อความอธิบายใต้ช่อง (ไม่ใช่ error — เป็นผลลัพธ์ที่ถูกต้อง เพราะ entry ของ Discord เท่านั้นที่นับ quest)
+ถ้ายืนยันว่าอยากเก็บ entry จาก Steam จริง ๆ กดปุ่ม **Add anyway** ข้างข้อความนั้น
+
 > **หมายเหตุสำคัญ:** SteamDB บล็อกการดึงข้อมูลอัตโนมัติ (Cloudflare 403) โปรแกรมจึงดึงจาก
 > `api.steamcmd.net` ซึ่งเป็นข้อมูล appinfo ชุดเดียวกับที่หน้า config ของ SteamDB แสดง
 
