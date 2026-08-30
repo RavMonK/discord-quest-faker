@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discord Quest Faker</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎮</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Discord Quest Faker</h1>
+      <span class="platform" id="platform">…</span>
+    </div>
+    <div class="topbar-right">
+      <span class="meta" id="listMeta">loading game list…</span>
+      <button class="btn ghost" id="refreshBtn">Refresh list</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" id="runningPanel">
+      <div class="panel-head">
+        <h2>Running <span class="count" id="runningCount">0</span></h2>
+        <button class="btn danger ghost" id="stopAllBtn" hidden>Stop all</button>
+      </div>
+      <div id="runningList" class="running-list">
+        <p class="empty">No fake game running. Pick one below and press Start.</p>
+      </div>
+    </section>
+
+    <section class="panel" id="presetPanel">
+      <div class="panel-head">
+        <h2>Presets <span class="count" id="presetCount">0</span></h2>
+        <button class="btn primary" id="startPresetsBtn">Start all presets</button>
+      </div>
+      <div id="presetList" class="preset-list">
+        <p class="empty">No presets yet — press ☆ on a game to save it into <code>config.json</code>.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Games</h2>
+        <label class="duration">
+          Auto-stop after
+          <input type="number" id="duration" min="0" step="5" value="0" title="0 = run until stopped">
+          min
+        </label>
+      </div>
+      <input type="search" id="search" class="search" placeholder="Search a game… (e.g. Fortnite, League of Legends)" autocomplete="off">
+      <div id="results" class="results"></div>
+      <p class="hint" id="resultHint"></p>
+
+      <div class="steam-add">
+        <label for="steamInput">Game missing from Discord's list? Add it from Steam:</label>
+        <div class="steam-add-row">
+          <input type="text" id="steamInput" placeholder="SteamDB / Steam URL or app id — e.g. https://steamdb.info/app/3787240/config/" autocomplete="off">
+          <button class="btn" id="steamAdd">Add</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>

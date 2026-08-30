@@ -1,0 +1,16 @@
+{
+  "name": "discord-quest-faker",
+  "version": "1.0.0",
+  "description": "Fake game runner for Discord quests - fetches the detectable game list and spoofs a running game process (Windows / macOS / Linux)",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/index.js",
+  "bin": { "discord-quest-faker": "src/index.js" },
+  "scripts": {
+    "start": "node src/index.js",
+    "headless": "node src/index.js --headless",
+    "refresh": "node src/index.js --refresh"
+  },
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": {}
+}

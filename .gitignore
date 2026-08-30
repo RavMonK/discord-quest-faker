@@ -1,0 +1,6 @@
+node_modules/
+data/games.json
+data/runtime/
+config.json
+*.log
+data/custom-games.json
