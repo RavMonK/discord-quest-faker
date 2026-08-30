@@ -44,11 +44,17 @@
     <section class="panel">
       <div class="panel-head">
         <h2>Games</h2>
-        <label class="duration">
-          Auto-stop after
-          <input type="number" id="duration" min="0" step="5" value="0" title="0 = run until stopped">
-          min
-        </label>
+        <div class="game-opts">
+          <label class="toggle" title="Show executables meant for other platforms. Whether Discord matches across platforms is unverified — this is here so you can test it.">
+            <input type="checkbox" id="allPlatforms">
+            All platforms
+          </label>
+          <label class="duration">
+            Auto-stop after
+            <input type="number" id="duration" min="0" step="5" value="0" title="0 = run until stopped">
+            min
+          </label>
+        </div>
       </div>
       <input type="search" id="search" class="search" placeholder="Search a game… (e.g. Fortnite, League of Legends)" autocomplete="off">
       <div id="results" class="results"></div>

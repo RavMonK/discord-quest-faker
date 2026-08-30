@@ -1,6 +1,6 @@
 node_modules/
-data/games.json
-data/runtime/
-config.json
 *.log
-data/custom-games.json
+
+# user state - game cache, custom games, generated placeholders, local settings
+data/
+config.json

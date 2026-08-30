@@ -54,6 +54,7 @@ function printHelp() {
     '  --list [query]        print matching games for this OS and exit',
     '  --start <name|id>     start a game from the command line (Ctrl+C to stop)',
     '  --exe all|<name>|<n>  which executable(s) of that game to run (default: the first one)',
+    '  --exe-os all          also offer executables meant for another platform (experimental)',
     '  --duration <minutes>  stop automatically after N minutes (with --start)',
     '  --presets             start every preset from config.json on launch',
     '  --help                show this help',
@@ -122,14 +123,18 @@ async function main() {
   if (args.list !== undefined) {
     if (store.games.length === 0) await store.refresh();
     const query = typeof args.list === 'string' ? args.list : '';
-    const { total, items } = store.search(query, { limit: 40 });
-    console.log('\n' + total + ' game(s) detectable on ' + OS_KEY + (query ? ' matching "' + query + '"' : '') + ':\n');
+    const anyOs = args['exe-os'] === 'all' || args['exe-os'] === true;
+    const { total, items } = store.search(query, { limit: 40, onlyThisOs: !anyOs });
+    console.log('\n' + total + ' game(s) detectable on ' + (anyOs ? 'any platform' : OS_KEY)
+      + (query ? ' matching "' + query + '"' : '') + ':\n');
     for (const game of items) {
-      const executables = Spoofer.candidates(game);
+      const executables = Spoofer.candidates(game, anyOs ? 'all' : OS_KEY);
       console.log('  ' + game.name.padEnd(44) + game.id);
       // the index shown here is what --exe <n> expects
       executables.forEach((exe, i) => {
-        console.log('      [' + i + '] ' + exe.name + (exe.isLauncher ? '  (launcher)' : ''));
+        console.log('      [' + i + '] ' + exe.name
+        + (exe.os !== OS_KEY ? '  [' + exe.os + ']' : '')
+        + (exe.isLauncher ? '  (launcher)' : ''));
       });
     }
     if (total > items.length) console.log('\n  ... and ' + (total - items.length) + ' more');
@@ -148,6 +153,8 @@ async function main() {
     // --exe all | --exe "lolex.exe" | --exe 2 ; default = first non-launcher executable
     const result = spoofer.start(game, {
       executable: args.exe === true ? 'all' : args.exe,
+      // --exe-os all: also offer entries meant for another platform (experimental)
+      osKey: args['exe-os'] === true ? 'all' : args['exe-os'],
       durationMinutes: args.duration ? Number(args.duration) : undefined
     });
     if (!result.ok) {

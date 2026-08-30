@@ -166,3 +166,12 @@ main { max-width: 980px; margin: 0 auto; padding: 20px; display: flex; flex-dire
 }
 .toast.error { border-left-color: var(--red); }
 .toast.ok { border-left-color: var(--green); }
+
+/* ---------- cross-platform toggle ---------- */
+.game-opts { display: flex; align-items: center; gap: 16px; }
+.toggle {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--muted); font-size: 12px; cursor: pointer; user-select: none;
+}
+.toggle input { accent-color: var(--accent); cursor: pointer; }
+.tag.warn { color: #f0b232; border-color: #5c4a1f; }
