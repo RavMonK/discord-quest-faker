@@ -112,11 +112,11 @@ Other invariants in `spoof.js`:
 - Discord maps a detected process to one application id, so running several executables of the
   same game gives no extra quest progress — the UI deliberately starts a single one.
 - The detectable list is overwhelmingly Windows: 10,447 games have a win32 executable, 62 have
-  darwin, 8 have linux. A Mac therefore sees almost nothing by default. `osKey: 'all'`
-  (UI "All platforms", CLI `--exe-os all`) lifts the per-OS filter so a Mac can create and run a
-  file literally named `foo.exe` — extensions are meaningless on Unix. Whether Discord's macOS
-  client matches win32 entries is **unverified**; the option exists so it can be tested. The
-  macOS placeholder also has no window, which is a second untested variable there.
+  darwin, 8 have linux. A Mac therefore sees almost nothing, and a Windows-only game never
+  appears there at all. Running win32 entries on macOS was built once and then **deliberately
+  removed**: it works technically (extensions mean nothing on Unix) but a `foo.exe` process on
+  macOS is impossible for a real game, so it is a trivially detectable spoofing signal. Do not
+  reintroduce it. The macOS placeholder also has no window, unlike the Windows one.
 - Any executable in a game's detectable entry works — `cod.exe` and `cod26-cod.exe` both get
   Modern Warfare 4 detected. There is no "correct" one to pick.
 - A Steam launch entry's `executable` is frequently just a bootstrapper, with the real game

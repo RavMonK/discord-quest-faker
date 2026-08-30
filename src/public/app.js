@@ -123,7 +123,6 @@ async function startGame(game, executable, durationMinutes) {
       body: JSON.stringify({
         id: game.id,
         executable,
-        os: allPlatforms() ? 'all' : undefined,
         durationMinutes: durationMinutes === undefined ? currentDuration() : durationMinutes
       })
     });
@@ -308,13 +307,6 @@ function executableRows(game) {
     const label = document.createElement('div');
     label.className = 'exe-name';
     label.textContent = exe.name;
-    if (exe.os && exe.os !== state.os) {
-      const tag = document.createElement('span');
-      tag.className = 'tag warn';
-      tag.textContent = exe.os;
-      tag.title = 'Meant for ' + exe.os + ', not ' + state.os;
-      label.appendChild(tag);
-    }
     if (exe.isLauncher) {
       const tag = document.createElement('span');
       tag.className = 'tag';
@@ -399,16 +391,10 @@ function renderMeta(meta) {
 /* ---------------- data flow ---------------- */
 
 let searchTimer = null;
-function allPlatforms() {
-  return $('allPlatforms').checked;
-}
-
 async function runSearch() {
   const query = $('search').value.trim();
   try {
-    const data = await api('/api/games?limit=100'
-      + (allPlatforms() ? '&all=1' : '')
-      + '&q=' + encodeURIComponent(query));
+    const data = await api('/api/games?limit=100&q=' + encodeURIComponent(query));
     state.results = data.items;
     renderResults();
     $('resultHint').textContent = data.total > data.items.length
@@ -438,8 +424,6 @@ $('search').addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(runSearch, 180);
 });
-
-$('allPlatforms').addEventListener('change', runSearch);
 
 $('steamAdd').addEventListener('click', () => addCustomGame($('steamInput').value.trim()));
 $('steamInput').addEventListener('keydown', (event) => {

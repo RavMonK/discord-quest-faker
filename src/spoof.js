@@ -194,16 +194,15 @@ class Spoofer {
   }
 
   /**
-   * Executables for one platform, de-duplicated, launchers last.
-   * `osKey` can be 'all' to include entries meant for another platform - only 62 of the 10,000+
-   * detectable games list a macOS executable, so on a Mac that is the only way to try a
-   * Windows-only game. Whether Discord matches across platforms is unverified.
+   * Executables for this platform, de-duplicated, launchers last.
+   * Entries for other platforms are never offered: a process named foo.exe on macOS cannot
+   * happen with a real game, which makes it an obvious spoofing signal.
    */
   static candidates(game, osKey = OS_KEY) {
     const seen = new Set();
     return (game.executables || [])
       .filter((exe) => {
-        if (osKey !== 'all' && exe.os !== osKey) return false;
+        if (exe.os !== osKey) return false;
         const name = exe.name.toLowerCase();
         if (seen.has(name)) return false;
         seen.add(name);
@@ -213,8 +212,8 @@ class Spoofer {
   }
 
   /** Resolve whatever the caller asked for ("all", a name, an index) to a list of executables. */
-  static select(game, wanted, osKey) {
-    const candidates = Spoofer.candidates(game, osKey || OS_KEY);
+  static select(game, wanted) {
+    const candidates = Spoofer.candidates(game);
     if (candidates.length === 0) return [];
     if (wanted === undefined || wanted === null || wanted === '') return [candidates[0]];
     if (wanted === 'all' || wanted === true) return candidates;
@@ -345,16 +344,15 @@ class Spoofer {
    */
   start(game, options) {
     const opts = options || {};
-    const osKey = opts.osKey || OS_KEY;
-    const wanted = Spoofer.select(game, opts.executable, osKey);
+    const wanted = Spoofer.select(game, opts.executable);
 
     if (wanted.length === 0) {
-      const hasAny = Spoofer.candidates(game, osKey).length > 0;
+      const hasAny = Spoofer.candidates(game).length > 0;
       return {
         ok: false,
         reason: hasAny
           ? 'no executable of ' + game.name + ' matched ' + JSON.stringify(opts.executable)
-          : game.name + ' has no ' + osKey + ' executable in the detectable list'
+          : game.name + ' has no ' + OS_KEY + ' executable in the detectable list'
       };
     }
 
@@ -436,8 +434,9 @@ class Spoofer {
             + 'so Discord may not detect it (install the .NET Framework so csc.exe is available)');
         }
 
-        // No pid means spawn failed outright (a macOS entry on Windows, a missing binary).
-        // The 'error' event only arrives later, so catch it here and fall to the next tier.
+        // No pid means the spawn failed outright (missing binary, blocked by policy, a file
+        // an antivirus just removed). The 'error' event only arrives on a later tick, so catch
+        // the failure here and fall through to the next tier instead of reporting success.
         if (!child.pid) {
           // The failure still arrives as an async 'error' event; without a listener Node
           // rethrows it and takes the whole program down.

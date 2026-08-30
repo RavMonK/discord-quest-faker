@@ -239,8 +239,6 @@ function createServer({ config, store, spoofer }) {
         // body.executable: "all" | executable name | array of names | index | omitted
         const result = spoofer.start(game, {
           executable: body.executable,
-          // "all" lets a machine run an entry meant for another platform (experimental)
-          osKey: body.os === 'all' ? 'all' : undefined,
           durationMinutes: body.durationMinutes
         });
         return sendJson(res, result.ok ? 200 : 409, Object.assign({}, result, { running: spoofer.list() }));
