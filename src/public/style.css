@@ -109,10 +109,16 @@ main { max-width: 980px; margin: 0 auto; padding: 20px; display: flex; flex-dire
 
 /* ---------- per-executable sub rows ---------- */
 .chevron {
-  background: none; border: none; color: var(--muted); cursor: pointer;
-  font-size: 11px; line-height: 1; padding: 4px 2px; flex: none; width: 16px;
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+  color: var(--text); font-size: 13px; line-height: 1; cursor: pointer;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
 }
-.chevron:hover { color: var(--text); }
+.chevron:hover { background: var(--accent); border-color: var(--accent); }
+.chevron.open { transform: rotate(90deg); }
+/* the whole name/subtitle block toggles too, so it has to look clickable */
+.row.expandable .info { cursor: pointer; }
+.row.expandable:hover .chevron { border-color: var(--accent); }
 
 .exe-list {
   display: flex; flex-direction: column; gap: 4px;
@@ -175,3 +181,5 @@ main { max-width: 980px; margin: 0 auto; padding: 20px; display: flex; flex-dire
   color: var(--muted); font-size: 12px; line-height: 1.5;
 }
 .steam-note span { flex: 1; min-width: 200px; }
+/* display:flex above outranks the browser's [hidden] rule, so say it again here */
+.steam-note[hidden] { display: none; }

@@ -122,12 +122,20 @@ function createServer({ config, store, spoofer }) {
    */
   const describePresets = () => config.presets.map((preset) => {
     const game = store.resolve(preset.id || preset.name);
+    const executables = game ? Spoofer.candidates(game) : [];
     const selected = game ? Spoofer.select(game, preset.executable) : [];
     return {
       id: preset.id,
       name: preset.name || (game && game.name) || String(preset.id),
-      executable: preset.executable,
-      executables: selected.map((exe) => exe.name),
+      // the stored choice, resolved so the panel always has a name to show
+      executable: preset.executable || (selected[0] ? selected[0].name : undefined),
+      // every executable of the game, in the same shape the game list uses, so the preset
+      // rows can offer the same per-executable picker
+      executables: executables.map((exe) => ({
+        name: exe.name,
+        os: exe.os,
+        isLauncher: Boolean(exe.isLauncher)
+      })),
       durationMinutes: preset.durationMinutes || 0,
       icon: game ? game.icon : null,
       iconUrl: game ? game.iconUrl || null : null,

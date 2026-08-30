@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
+const readline = require('readline');
 const configModule = require('./config');
 const { GameStore, OS_KEY } = require('./games');
 const { Spoofer } = require('./spoof');
@@ -37,6 +38,126 @@ function openBrowser(url) {
   exec(command, { windowsHide: true }, (err) => {
     if (err) console.log('[ui] open ' + url + ' in your browser');
   });
+}
+
+/* ---------------- the control panel port ---------------- */
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** listen() with the callback/'error' pair folded into one promise, so a retry is easy. */
+function listen(server, port, host) {
+  return new Promise((resolve, reject) => {
+    const onError = (err) => { server.removeListener('listening', onListening); reject(err); };
+    const onListening = () => { server.removeListener('error', onError); resolve(); };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, host);
+  });
+}
+
+/** Whoever is listening on `port`, as { pid, name } - or null when nothing can be resolved. */
+function portOwner(port) {
+  try {
+    if (process.platform === 'win32') {
+      const out = execSync('netstat -ano -p TCP', { encoding: 'utf8', windowsHide: true });
+      const row = out.split(/\r?\n/)
+        .map((line) => line.trim().split(/\s+/))
+        // TCP  127.0.0.1:5011  0.0.0.0:0  LISTENING  1234   - the address can also be [::]:5011
+        .find((parts) => parts[0] === 'TCP' && parts[3] === 'LISTENING'
+          && parts[1].endsWith(':' + port));
+      if (!row) return null;
+      return { pid: Number(row[4]), name: processName(Number(row[4])) };
+    }
+
+    const pid = Number(execSync('lsof -nP -iTCP:' + port + ' -sTCP:LISTEN -t', { encoding: 'utf8' })
+      .split(/\s+/)[0]);
+    return pid ? { pid, name: processName(pid) } : null;
+  } catch (err) {
+    return null; // netstat/lsof missing or nothing listening
+  }
+}
+
+function processName(pid) {
+  try {
+    if (process.platform === 'win32') {
+      const out = execSync('tasklist /FI "PID eq ' + pid + '" /NH /FO CSV',
+        { encoding: 'utf8', windowsHide: true });
+      const match = out.match(/^"([^"]+)"/m);
+      return match ? match[1] : '';
+    }
+    return execSync('ps -p ' + pid + ' -o comm=', { encoding: 'utf8' }).trim();
+  } catch (err) {
+    return '';
+  }
+}
+
+function ask(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase());
+    });
+  });
+}
+
+function killPid(pid) {
+  try {
+    // /T so the placeholders a leftover panel spawned go with it - they are its children
+    if (process.platform === 'win32') {
+      execSync('taskkill /PID ' + pid + ' /T /F', { stdio: 'ignore', windowsHide: true });
+    } else {
+      process.kill(pid, 'SIGTERM');
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: String(err.message).split('\n')[0] };
+  }
+}
+
+/**
+ * A busy port is nearly always a copy of this panel left behind by a crash or a second window,
+ * so name the process and offer to kill it instead of making the user hunt the pid down.
+ * Returns true only when the port really is free again.
+ */
+async function offerToFreePort(port) {
+  const owner = portOwner(port);
+  const hint = '        change "port" in config.json, or run with --port 8080';
+
+  console.error('\n[server] port ' + port + ' is already in use'
+    + (owner ? ' by ' + (owner.name || 'an unknown process') + ' (pid ' + owner.pid + ')' : ''));
+
+  if (!owner) {
+    console.error('        could not work out which process holds it');
+    console.error(hint);
+    return false;
+  }
+  if (!process.stdin.isTTY) {
+    // --headless from a script: never kill something nobody agreed to kill
+    console.error('        not running in a terminal, so nothing was killed - kill pid '
+      + owner.pid + ' yourself');
+    console.error(hint);
+    return false;
+  }
+
+  const answer = await ask('        kill pid ' + owner.pid + ' and take the port? [y/N] ');
+  if (answer !== 'y' && answer !== 'yes') {
+    console.error('        left it running');
+    console.error(hint);
+    return false;
+  }
+
+  const killed = killPid(owner.pid);
+  if (!killed.ok) {
+    console.error('        could not kill pid ' + owner.pid + ': ' + killed.reason);
+    console.error(hint);
+    return false;
+  }
+
+  // the socket needs a moment to come back after the process goes away
+  for (let i = 0; i < 10 && portOwner(port); i += 1) await delay(200);
+  console.log('        killed pid ' + owner.pid + ' - taking port ' + port + '\n');
+  return true;
 }
 
 function printHelp() {
@@ -193,25 +314,32 @@ async function main() {
   // --- control panel ------------------------------------------------------
   const { server, startPreset } = createServer({ config, store, spoofer });
 
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error('[server] port ' + config.port + ' is already in use - change "port" in config.json or pass --port');
-    } else {
+  try {
+    await listen(server, config.port, config.host);
+  } catch (err) {
+    if (err.code !== 'EADDRINUSE') {
       console.error('[server] ' + err.message);
+      process.exit(1);
     }
-    process.exit(1);
-  });
+    if (!await offerToFreePort(config.port)) process.exit(1);
+    try {
+      await listen(server, config.port, config.host);
+    } catch (retryErr) {
+      console.error('[server] port ' + config.port + ' is still busy (' + retryErr.code + ')');
+      process.exit(1);
+    }
+  }
 
-  server.listen(config.port, config.host, () => {
-    const url = 'http://' + config.host + ':' + config.port;
-    console.log('');
-    console.log('  Discord Quest Faker');
-    console.log('  control panel : ' + url);
-    console.log('  platform      : ' + OS_KEY);
-    console.log('  game list     : ' + config.gamesFile + ' (' + store.games.length + ' cached)');
-    console.log('');
-    if (config.openBrowser) openBrowser(url);
-  });
+  server.on('error', (err) => console.error('[server] ' + err.message));
+
+  const url = 'http://' + config.host + ':' + config.port;
+  console.log('');
+  console.log('  Discord Quest Faker');
+  console.log('  control panel : ' + url);
+  console.log('  platform      : ' + OS_KEY);
+  console.log('  game list     : ' + config.gamesFile + ' (' + store.games.length + ' cached)');
+  console.log('');
+  if (config.openBrowser) openBrowser(url);
 
   // Refresh the json list in the background so the UI is usable immediately.
   const refreshAndMaybeAutoStart = async () => {

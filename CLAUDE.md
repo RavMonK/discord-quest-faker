@@ -133,3 +133,8 @@ Other invariants in `spoof.js`:
   entry instead (`--force` overrides).
 - `data/` (games cache, custom games, runtime placeholders) and `config.json` are gitignored;
   they are user state, not source.
+- A busy control-panel port is not a dead end: `offerToFreePort()` in `index.js` names the
+  process holding it and offers to kill it, then retries `listen()`. It only ever asks when
+  `process.stdin.isTTY` — `--headless` driven from a script must not kill a process nobody
+  agreed to kill. Windows kills with `taskkill /T`, so placeholders a leftover panel spawned
+  (its children) go with it.

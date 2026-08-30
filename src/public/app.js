@@ -1,7 +1,11 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const state = { presets: [], running: [], os: '', results: [], expanded: new Set() };
+const state = {
+  presets: [], running: [], os: '', results: [],
+  // the two panels expand independently, so one set each
+  expanded: new Set(), expandedPresets: new Set()
+};
 
 /* ---------------- helpers ---------------- */
 
@@ -100,6 +104,32 @@ function button(label, className, onClick) {
   btn.textContent = label;
   btn.addEventListener('click', onClick);
   return btn;
+}
+
+/**
+ * The expand control for a game with several executables. The bare 16px chevron was easy to
+ * miss and fiddly to hit, so this is a real button and the row's own name/subtitle toggles it
+ * too - the buttons on the right keep their own clicks.
+ */
+function addExpander(el, key, expandedSet, rerender) {
+  const open = expandedSet.has(key);
+
+  const toggle = () => {
+    if (expandedSet.has(key)) expandedSet.delete(key);
+    else expandedSet.add(key);
+    rerender();
+  };
+
+  const btn = document.createElement('button');
+  btn.className = 'chevron' + (open ? ' open' : '');
+  btn.title = open ? 'Hide the executables' : 'Show each executable';
+  btn.setAttribute('aria-expanded', String(open));
+  btn.textContent = '▸';
+  btn.addEventListener('click', toggle);
+
+  el.classList.add('expandable');
+  el.insertBefore(btn, el.firstChild);
+  el.querySelector('.info').addEventListener('click', toggle);
 }
 
 /* ---------------- actions ---------------- */
@@ -293,6 +323,7 @@ function renderPresets() {
     const sessions = runningFor(preset.id);
     // never let one odd preset blank the whole panel
     const executables = preset.executables || [];
+    const multi = executables.length > 1;
     const actions = [];
 
     if (preset.missing) {
@@ -306,16 +337,31 @@ function renderPresets() {
       actions.push(button('Start', 'primary',
         () => startGame(preset, preset.executable, preset.durationMinutes)));
     }
-    actions.push(button('★', 'ghost', () => togglePreset(preset)));
+    // a star here reads as "saved", not as "delete" - name the action instead
+    const remove = button('Remove', 'danger ghost', () => togglePreset(preset));
+    remove.title = 'Remove this preset from config.json';
+    actions.push(remove);
 
-    const target = executables[0] || String(preset.executable || 'default executable');
+    const target = String(preset.executable || (executables[0] && executables[0].name)
+      || 'default executable');
 
     const subtitle = preset.missing
       ? 'id ' + preset.id + ' is not in the current game list'
-      : 'config.json  ·  ' + target
+      : 'config.json  ·  ' + (multi
+        ? executables.length + ' executables  ·  '
+          + (sessions.length ? sessions.length + ' running' : 'starts ' + target)
+        : target)
         + (preset.durationMinutes ? '  ·  auto-stop ' + preset.durationMinutes + ' min' : '');
 
-    list.appendChild(row(preset, { live: sessions.length > 0, subtitle, actions }));
+    const el = row(preset, { live: sessions.length > 0, subtitle, actions });
+
+    // same picker the game list has: Start runs the saved executable, the sub-rows run any other
+    if (multi) addExpander(el, preset.id, state.expandedPresets, renderPresets);
+
+    list.appendChild(el);
+    if (multi && state.expandedPresets.has(preset.id)) {
+      list.appendChild(executableRows(preset, preset.durationMinutes));
+    }
   });
 }
 
@@ -324,8 +370,11 @@ function runningFor(gameId, executable) {
     String(s.gameId) === String(gameId) && (executable === undefined || s.executable === executable));
 }
 
-/** The per-executable sub-rows shown under a game with more than one executable. */
-function executableRows(game) {
+/**
+ * The per-executable sub-rows shown under a game with more than one executable.
+ * `durationMinutes` is what a preset stores; undefined falls back to the duration box.
+ */
+function executableRows(game, durationMinutes) {
   const wrap = document.createElement('div');
   wrap.className = 'exe-list';
 
@@ -346,7 +395,7 @@ function executableRows(game) {
 
     const action = session
       ? button('Stop', 'danger', () => stopGame({ key: session.key }))
-      : button('Start', 'ghost', () => startGame(game, exe.name));
+      : button('Start', 'ghost', () => startGame(game, exe.name, durationMinutes));
 
     item.append(label, action);
     wrap.appendChild(item);
@@ -391,18 +440,7 @@ function appendResultRow(container, game) {
 
   const el = row(game, { live: sessions.length > 0, subtitle, actions });
 
-  if (multi) {
-    const toggle = document.createElement('button');
-    toggle.className = 'chevron';
-    toggle.title = 'Show each executable';
-    toggle.textContent = state.expanded.has(game.id) ? '▾' : '▸';
-    toggle.addEventListener('click', () => {
-      if (state.expanded.has(game.id)) state.expanded.delete(game.id);
-      else state.expanded.add(game.id);
-      renderResults();
-    });
-    el.insertBefore(toggle, el.firstChild);
-  }
+  if (multi) addExpander(el, game.id, state.expanded, renderResults);
 
   container.appendChild(el);
   if (multi && state.expanded.has(game.id)) container.appendChild(executableRows(game));
