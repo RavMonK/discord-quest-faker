@@ -168,8 +168,9 @@ function createServer({ config, store, spoofer }) {
 
       if (route === '/api/games' && req.method === 'GET') {
         const limit = Math.min(Number(url.searchParams.get('limit')) || 100, 500);
+        const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
         const onlyThisOs = url.searchParams.get('all') !== '1';
-        return sendJson(res, 200, store.search(url.searchParams.get('q') || '', { limit, onlyThisOs }));
+        return sendJson(res, 200, store.search(url.searchParams.get('q') || '', { limit, offset, onlyThisOs }));
       }
 
       if (route === '/api/custom' && req.method === 'POST') {

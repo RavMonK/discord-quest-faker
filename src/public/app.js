@@ -325,61 +325,66 @@ function executableRows(game) {
   return wrap;
 }
 
+/** Render one game into the results list, plus its executable sub-rows when expanded. */
+function appendResultRow(container, game) {
+  const sessions = runningFor(game.id);
+  const multi = game.executables.length > 1;
+  const saved = state.presets.some((p) => String(p.id) === String(game.id));
+
+  const star = document.createElement('button');
+  star.className = 'star' + (saved ? ' on' : '');
+  star.title = saved ? 'Remove from config.json' : 'Save to config.json';
+  star.textContent = saved ? '★' : '☆';
+  star.addEventListener('click', () => togglePreset(game));
+
+  const actions = [star];
+
+  if (game.custom) {
+    const remove = button('✕', 'ghost', () => removeCustomGame(game));
+    remove.title = 'Remove this game from custom-games.json';
+    actions.push(remove);
+  }
+
+  // One process is enough for Discord to see the game, so the main button starts a single
+  // executable - the per-executable list below is there when a different one is needed.
+  if (sessions.length > 0) {
+    actions.push(button(sessions.length > 1 ? 'Stop all (' + sessions.length + ')' : 'Stop', 'danger',
+      () => stopGame({ id: game.id })));
+  } else {
+    actions.push(button('Start', 'primary', () => startGame(game, game.executables[0].name)));
+  }
+
+  const subtitle = multi
+    ? game.executables.length + ' executables'
+      + (sessions.length ? '  ·  ' + sessions.length + ' running' : '  ·  starts ' + game.executables[0].name)
+    : game.executables[0].name;
+
+  const el = row(game, { live: sessions.length > 0, subtitle, actions });
+
+  if (multi) {
+    const toggle = document.createElement('button');
+    toggle.className = 'chevron';
+    toggle.title = 'Show each executable';
+    toggle.textContent = state.expanded.has(game.id) ? '▾' : '▸';
+    toggle.addEventListener('click', () => {
+      if (state.expanded.has(game.id)) state.expanded.delete(game.id);
+      else state.expanded.add(game.id);
+      renderResults();
+    });
+    el.insertBefore(toggle, el.firstChild);
+  }
+
+  container.appendChild(el);
+  if (multi && state.expanded.has(game.id)) container.appendChild(executableRows(game));
+}
+
+/** Full rebuild. Keeps the scroll position so a Start/Stop does not throw the list around. */
 function renderResults() {
   const container = $('results');
+  const scroll = container.scrollTop;
   container.textContent = '';
-
-  state.results.forEach((game) => {
-    const sessions = runningFor(game.id);
-    const multi = game.executables.length > 1;
-    const saved = state.presets.some((p) => String(p.id) === String(game.id));
-
-    const star = document.createElement('button');
-    star.className = 'star' + (saved ? ' on' : '');
-    star.title = saved ? 'Remove from config.json' : 'Save to config.json';
-    star.textContent = saved ? '★' : '☆';
-    star.addEventListener('click', () => togglePreset(game));
-
-    const actions = [star];
-
-    if (game.custom) {
-      const remove = button('✕', 'ghost', () => removeCustomGame(game));
-      remove.title = 'Remove this game from custom-games.json';
-      actions.push(remove);
-    }
-
-    // One process is enough for Discord to see the game, so the main button starts a single
-    // executable - the per-executable list below is there when a different one is needed.
-    if (sessions.length > 0) {
-      actions.push(button(sessions.length > 1 ? 'Stop all (' + sessions.length + ')' : 'Stop', 'danger',
-        () => stopGame({ id: game.id })));
-    } else {
-      actions.push(button('Start', 'primary', () => startGame(game, game.executables[0].name)));
-    }
-
-    const subtitle = multi
-      ? game.executables.length + ' executables'
-        + (sessions.length ? '  ·  ' + sessions.length + ' running' : '  ·  starts ' + game.executables[0].name)
-      : game.executables[0].name;
-
-    const el = row(game, { live: sessions.length > 0, subtitle, actions });
-
-    if (multi) {
-      const toggle = document.createElement('button');
-      toggle.className = 'chevron';
-      toggle.title = 'Show each executable';
-      toggle.textContent = state.expanded.has(game.id) ? '▾' : '▸';
-      toggle.addEventListener('click', () => {
-        if (state.expanded.has(game.id)) state.expanded.delete(game.id);
-        else state.expanded.add(game.id);
-        renderResults();
-      });
-      el.insertBefore(toggle, el.firstChild);
-    }
-
-    container.appendChild(el);
-    if (multi && state.expanded.has(game.id)) container.appendChild(executableRows(game));
-  });
+  state.results.forEach((game) => appendResultRow(container, game));
+  container.scrollTop = scroll;
 }
 
 function renderMeta(meta) {
@@ -391,18 +396,88 @@ function renderMeta(meta) {
 /* ---------------- data flow ---------------- */
 
 let searchTimer = null;
+
+const PAGE_SIZE = 100;
+// `generation` invalidates pages still in flight when the query changes underneath them
+const paging = { query: '', total: 0, loading: false, generation: 0, exhausted: false };
+
+function fetchPage(query, offset) {
+  return api('/api/games?limit=' + PAGE_SIZE + '&offset=' + offset + '&q=' + encodeURIComponent(query));
+}
+
+function updateHint() {
+  const shown = state.results.length;
+  if (paging.total === 0) {
+    $('resultHint').textContent = paging.query ? 'No match' : '';
+  } else if (shown < paging.total) {
+    $('resultHint').textContent = 'Showing ' + shown + ' of ' + paging.total
+      + (paging.loading ? ' — loading more…' : ' — scroll for more');
+  } else {
+    $('resultHint').textContent = paging.total + ' match' + (paging.total === 1 ? '' : 'es');
+  }
+}
+
+/** Fresh search: replaces the list and scrolls back to the top. */
 async function runSearch() {
   const query = $('search').value.trim();
+  paging.generation += 1;
+  paging.query = query;
+  paging.exhausted = false;
+  paging.loading = true;
+  const generation = paging.generation;
+
   try {
-    const data = await api('/api/games?limit=100&q=' + encodeURIComponent(query));
+    const data = await fetchPage(query, 0);
+    if (generation !== paging.generation) return; // a newer search already started
     state.results = data.items;
+    paging.total = data.total;
     renderResults();
-    $('resultHint').textContent = data.total > data.items.length
-      ? 'Showing ' + data.items.length + ' of ' + data.total + ' matches — refine your search to see the rest.'
-      : data.total + ' match' + (data.total === 1 ? '' : 'es');
+    $('results').scrollTop = 0;
   } catch (err) {
     toast(err.message, 'error');
+  } finally {
+    if (generation === paging.generation) paging.loading = false;
   }
+
+  updateHint();
+  fillViewport();
+}
+
+/** Append the next page. Called by the scroll handler and after each page lands. */
+async function loadMore() {
+  if (paging.loading || paging.exhausted || state.results.length >= paging.total) return;
+  paging.loading = true;
+  updateHint();
+  const generation = paging.generation;
+
+  try {
+    const data = await fetchPage(paging.query, state.results.length);
+    if (generation !== paging.generation) return;
+
+    if (data.items.length === 0) {
+      paging.exhausted = true;
+    } else {
+      const container = $('results');
+      state.results = state.results.concat(data.items);
+      data.items.forEach((game) => appendResultRow(container, game));
+      paging.total = data.total;
+    }
+  } catch (err) {
+    paging.exhausted = true; // stop hammering a failing endpoint
+    toast(err.message, 'error');
+  } finally {
+    if (generation === paging.generation) paging.loading = false;
+  }
+
+  updateHint();
+  fillViewport();
+}
+
+/** With few or short rows the list may not scroll at all - keep filling until it does. */
+function fillViewport() {
+  const container = $('results');
+  // clientHeight is 0 while the panel is hidden - filling then would fetch every page
+  if (container.clientHeight > 0 && container.scrollHeight <= container.clientHeight + 40) loadMore();
 }
 
 async function loadState() {
@@ -423,6 +498,11 @@ async function loadState() {
 $('search').addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(runSearch, 180);
+});
+
+$('results').addEventListener('scroll', () => {
+  const el = $('results');
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 320) loadMore();
 });
 
 $('steamAdd').addEventListener('click', () => addCustomGame($('steamInput').value.trim()));

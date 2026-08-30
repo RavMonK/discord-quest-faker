@@ -218,8 +218,11 @@ class GameStore {
       || null;
   }
 
-  /** Search, optionally restricted to games that are spoofable on this OS. */
-  search(query, { limit = 200, osKey = OS_KEY, onlyThisOs = true } = {}) {
+  /**
+   * Search, optionally restricted to games that are spoofable on this OS.
+   * `offset` exists so the UI can page through the whole list as it scrolls.
+   */
+  search(query, { limit = 200, offset = 0, osKey = OS_KEY, onlyThisOs = true } = {}) {
     const needle = fold(String(query || '').trim());
     const results = [];
 
@@ -254,7 +257,8 @@ class GameStore {
       });
     }
 
-    return { total: results.length, items: results.slice(0, limit) };
+    const start = Math.max(0, offset);
+    return { total: results.length, offset: start, items: results.slice(start, start + limit) };
   }
 
   meta() {
