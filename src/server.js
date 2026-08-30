@@ -114,6 +114,28 @@ function serveStatic(req, res, urlPath) {
  * Starts the little control panel. Everything the UI needs goes through /api/*.
  */
 function createServer({ config, store, spoofer }) {
+  /**
+   * config.json only stores id/name/executable, so fill in what the UI draws with: the icon,
+   * the executables the preset resolves to, and whether the game is still detectable.
+   * Every endpoint that returns presets uses this - handing back the raw config entries left
+   * the panel unable to render them.
+   */
+  const describePresets = () => config.presets.map((preset) => {
+    const game = store.resolve(preset.id || preset.name);
+    const selected = game ? Spoofer.select(game, preset.executable) : [];
+    return {
+      id: preset.id,
+      name: preset.name || (game && game.name) || String(preset.id),
+      executable: preset.executable,
+      executables: selected.map((exe) => exe.name),
+      durationMinutes: preset.durationMinutes || 0,
+      icon: game ? game.icon : null,
+      iconUrl: game ? game.iconUrl || null : null,
+      custom: game ? Boolean(game.custom) : false,
+      missing: !game
+    };
+  });
+
   const startPreset = (preset) => {
     const game = store.resolve(preset.id || preset.name);
     if (!game) return { ok: false, reason: 'game not found: ' + (preset.id || preset.name) };
@@ -133,30 +155,12 @@ function createServer({ config, store, spoofer }) {
       }
 
       if (route === '/api/state' && req.method === 'GET') {
-        // Presets in config.json only carry id/name, so fill in the icon and flag the ones
-        // that no longer resolve to a detectable game.
-        const presets = config.presets.map((preset) => {
-          const game = store.resolve(preset.id || preset.name);
-          const selected = game ? Spoofer.select(game, preset.executable) : [];
-          return {
-            id: preset.id,
-            name: preset.name || (game && game.name) || String(preset.id),
-            executable: preset.executable,
-            executables: selected.map((exe) => exe.name),
-            durationMinutes: preset.durationMinutes || 0,
-            icon: game ? game.icon : null,
-            iconUrl: game ? game.iconUrl || null : null,
-            custom: game ? Boolean(game.custom) : false,
-            missing: !game
-          };
-        });
-
         return sendJson(res, 200, {
           os: OS_KEY,
           platform: process.platform,
           games: store.meta(),
           running: spoofer.list(),
-          presets,
+          presets: describePresets(),
           settings: {
             defaultDurationMinutes: config.defaultDurationMinutes,
             maxConcurrent: config.maxConcurrent,
@@ -257,20 +261,13 @@ function createServer({ config, store, spoofer }) {
         return sendJson(res, 200, { ok: true, stopped, running: spoofer.list() });
       }
 
-      if (route === '/api/presets/start' && req.method === 'POST') {
-        const results = config.presets.map((preset) => {
-          const result = startPreset(preset);
-          return { preset: preset.name || preset.id, ok: result.ok, reason: result.reason };
-        });
-        return sendJson(res, 200, { ok: true, results, running: spoofer.list() });
-      }
 
       if (route === '/api/presets' && req.method === 'POST') {
         const body = await readBody(req);
         const game = store.resolve(body.id);
         if (!game) return sendJson(res, 404, { ok: false, reason: 'game not found' });
         if (config.presets.some((p) => String(p.id) === game.id)) {
-          return sendJson(res, 200, { ok: true, presets: config.presets });
+          return sendJson(res, 200, { ok: true, presets: describePresets() });
         }
         const preferred = Spoofer.select(game, body.executable)[0];
         config.presets.push({
@@ -280,18 +277,18 @@ function createServer({ config, store, spoofer }) {
           durationMinutes: Number(body.durationMinutes) > 0 ? Number(body.durationMinutes) : 0
         });
         if (!configModule.save(config)) {
-          return sendJson(res, 500, { ok: false, reason: 'config.json is not valid JSON - fix it and restart', presets: config.presets });
+          return sendJson(res, 500, { ok: false, reason: 'config.json is not valid JSON - fix it and restart', presets: describePresets() });
         }
-        return sendJson(res, 200, { ok: true, presets: config.presets });
+        return sendJson(res, 200, { ok: true, presets: describePresets() });
       }
 
       if (route === '/api/presets' && req.method === 'DELETE') {
         const body = await readBody(req);
         config.presets = config.presets.filter((p) => String(p.id) !== String(body.id));
         if (!configModule.save(config)) {
-          return sendJson(res, 500, { ok: false, reason: 'config.json is not valid JSON - fix it and restart', presets: config.presets });
+          return sendJson(res, 500, { ok: false, reason: 'config.json is not valid JSON - fix it and restart', presets: describePresets() });
         }
-        return sendJson(res, 200, { ok: true, presets: config.presets });
+        return sendJson(res, 200, { ok: true, presets: describePresets() });
       }
 
       return sendJson(res, 404, { ok: false, reason: 'unknown endpoint' });

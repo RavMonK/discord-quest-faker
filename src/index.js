@@ -61,6 +61,28 @@ function printHelp() {
   ].join('\n'));
 }
 
+/**
+ * A preset starts exactly one executable. Earlier versions saved "all" from the star button,
+ * which turned one preset into several processes - rewrite those to the executable they would
+ * have used anyway.
+ */
+function normalizePresets(config, store) {
+  let changed = false;
+
+  config.presets = config.presets.map((preset) => {
+    if (preset.executable !== 'all') return preset;
+    const game = store.resolve(preset.id || preset.name);
+    const first = game ? Spoofer.candidates(game)[0] : null;
+    if (!first) return preset;
+
+    changed = true;
+    console.log('[config] preset "' + (preset.name || preset.id) + '": "all" -> ' + first.name);
+    return Object.assign({}, preset, { executable: first.name });
+  });
+
+  if (changed) configModule.save(config);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -74,6 +96,7 @@ async function main() {
 
   const store = new GameStore(config);
   const spoofer = new Spoofer(config);
+  normalizePresets(config, store);
 
   const shutdown = (signal) => {
     const stopped = spoofer.stopAll(true);

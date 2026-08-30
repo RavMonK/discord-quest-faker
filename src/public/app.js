@@ -200,7 +200,9 @@ async function togglePreset(game, executable) {
       method: saved ? 'DELETE' : 'POST',
       body: JSON.stringify({
         id: game.id,
-        executable: executable || 'all',
+        // undefined lets the server store the first non-launcher executable. Never "all":
+        // one process is all Discord needs, and a preset should start exactly one.
+        executable,
         durationMinutes: currentDuration()
       })
     });
@@ -249,7 +251,6 @@ function renderPresets() {
   const list = $('presetList');
   list.textContent = '';
   $('presetCount').textContent = state.presets.length;
-  $('startPresetsBtn').disabled = state.presets.length === 0;
 
   if (state.presets.length === 0) {
     const p = document.createElement('p');
@@ -261,6 +262,8 @@ function renderPresets() {
 
   state.presets.forEach((preset) => {
     const sessions = runningFor(preset.id);
+    // never let one odd preset blank the whole panel
+    const executables = preset.executables || [];
     const actions = [];
 
     if (preset.missing) {
@@ -271,14 +274,12 @@ function renderPresets() {
       actions.push(button('Stop' + (sessions.length > 1 ? ' all (' + sessions.length + ')' : ''), 'danger',
         () => stopGame({ id: preset.id })));
     } else {
-      actions.push(button('Start' + (preset.executables.length > 1 ? ' (' + preset.executables.length + ')' : ''),
-        'primary', () => startGame(preset, preset.executable, preset.durationMinutes)));
+      actions.push(button('Start', 'primary',
+        () => startGame(preset, preset.executable, preset.durationMinutes)));
     }
     actions.push(button('★', 'ghost', () => togglePreset(preset)));
 
-    const target = preset.executables.length > 1
-      ? preset.executables.length + ' executables'
-      : preset.executables[0] || String(preset.executable || 'default executable');
+    const target = executables[0] || String(preset.executable || 'default executable');
 
     const subtitle = preset.missing
       ? 'id ' + preset.id + ' is not in the current game list'
@@ -534,15 +535,6 @@ $('stopAllBtn').addEventListener('click', async () => {
   renderPresets();
 });
 
-$('startPresetsBtn').addEventListener('click', async () => {
-  const data = await api('/api/presets/start', { method: 'POST' });
-  state.running = data.running;
-  renderRunning();
-  renderResults();
-  renderPresets();
-  const failed = data.results.filter((r) => !r.ok);
-  toast(failed.length ? failed.length + ' preset(s) failed: ' + failed[0].reason : 'All presets started', failed.length ? 'error' : 'ok');
-});
 
 // live clock for the running rows
 setInterval(() => {

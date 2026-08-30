@@ -62,7 +62,7 @@ Five modules under `src/`, wired together in `index.js`:
 - **spoof.js** — the actual spoofing. See below.
 - **server.js** — zero-dependency `http` server, static files from `src/public/`, JSON API under
   `/api/`: `state`, `games`, `custom` (POST/DELETE), `refresh`, `start`, `stop`, `stop-all`,
-  `presets` (POST/DELETE), `presets/start`.
+  `presets` (POST/DELETE).
 
 The frontend (`src/public/`) is plain HTML/CSS/JS, no framework or build.
 
@@ -110,7 +110,11 @@ Other invariants in `spoof.js`:
 ## Domain facts worth keeping
 
 - Discord maps a detected process to one application id, so running several executables of the
-  same game gives no extra quest progress — the UI deliberately starts a single one.
+  same game gives no extra quest progress — the UI deliberately starts a single one, and a
+  preset stores one executable name (never "all"). There is no start-all control anywhere.
+- Every endpoint that returns presets must go through `describePresets()`: config.json holds
+  only id/name/executable, and handing those raw entries to the UI made `renderPresets` throw
+  mid-render, blanking the panel until the next poll.
 - The detectable list is overwhelmingly Windows: 10,447 games have a win32 executable, 62 have
   darwin, 8 have linux. A Mac therefore sees almost nothing, and a Windows-only game never
   appears there at all. Running win32 entries on macOS was built once and then **deliberately
