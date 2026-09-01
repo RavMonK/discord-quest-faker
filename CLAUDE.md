@@ -7,7 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A local tool that fetches Discord's detectable-game list and spawns placeholder processes that
 impersonate a game's executable, so Discord's game detection reports the game as running and
 "play game X" quests progress. Node.js only — **zero npm dependencies**, so `npm install` is
-never needed. The README is written in Thai and carries the user-facing details.
+never needed. The README exists twice — `README.md` (Thai) and `README.en.md` (English), mirrors
+of each other — and both are deliberately short: a warning, a quick start, and an index into the
+wiki. All user-facing detail lives in `wiki/` — 13 topics, each as a `TH-*.md` / `EN-*.md` pair,
+synced to the GitHub wiki (see `wiki/README.md`). A change to user-visible behaviour belongs in
+both wiki languages; touch the READMEs only when the quick start or the warning changes, and then
+in both of them.
 
 ## Commands
 
