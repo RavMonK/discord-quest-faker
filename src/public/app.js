@@ -344,7 +344,7 @@ function renderPresets() {
         () => stopGame({ id: preset.id })));
     } else {
       actions.push(button('Start', 'primary',
-        () => startGame(preset, preset.executable, preset.durationMinutes)));
+        () => startGame(preset, preset.executable, preset.durationMinutes || undefined)));
     }
     // a star here reads as "saved", not as "delete" - name the action instead
     const remove = button('Remove', 'danger ghost', () => togglePreset(preset));
@@ -369,7 +369,7 @@ function renderPresets() {
 
     list.appendChild(el);
     if (multi && state.expandedPresets.has(preset.id)) {
-      list.appendChild(executableRows(preset, preset.durationMinutes));
+      list.appendChild(executableRows(preset, preset.durationMinutes || undefined));
     }
   });
 }
