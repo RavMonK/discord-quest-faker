@@ -37,8 +37,9 @@ node --check src/spoof.js         # syntax check a file
 `tests/` covers only pure, deterministic logic that is safe to run without touching the real
 project state: `games.js`'s `normalize()`/`fold()`/`GameStore` (constructed with a temp-dir
 config, never the real `config.json`), `spoof.js`'s path/name helpers (`materialize()`,
-`safeName()`, `signalToken()`, `candidates()`/`select()`) and `startOne()`'s synchronous guards
-(already-running, `maxConcurrent`), and `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
+`writeBundle()`, `bundlePlist()`, `rebuildBundle()`, `safeName()`, `signalToken()`, `objcString()`,
+`candidates()`/`select()`), the per-platform shape of `tiers()`, and `startOne()`'s synchronous
+guards (already-running, `maxConcurrent`), and `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
 `executablesInArguments`, `osKeysFor`). It deliberately does **not** cover: `config.js`'s
 `load()`/`save()` (they hardcode the real `config.json` path under the project root — there is no
 way to point them at a temp file, so testing them would risk clobbering the user's actual config),
@@ -61,6 +62,43 @@ Kill leftovers between runs — a crashed server can leave placeholders behind:
 Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*data\runtime*" } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
+
+On macOS the equivalent checks are different, and one of them is not optional. `ps` is useless
+for reading a placeholder's path (`keepalive.js` sets `process.title`, which overwrites the argv
+the process table shows), and `pgrep -f` matches your own shell command line, so it happily
+reports a placeholder that is not running. Ask the kernel the same question Discord asks —
+`proc_pidpath()` — and check the copy really is a copy:
+
+```bash
+lsappinfo list | grep -A4 -i <game>.app      # must say type="Foreground" with the fake paths
+stat -f "links=%l inode=%i" <path>           # links must be 1: a hard link breaks the next check
+python3 -c "import ctypes,ctypes.util,sys
+libc=ctypes.CDLL(ctypes.util.find_library('c')); b=ctypes.create_string_buffer(4096)
+libc.proc_pidpath(ctypes.c_int(int(sys.argv[1])),b,4096); print(b.value.decode())" <pid>
+```
+
+Whether it owns a window is the other half, and it is the same call Discord makes. Compile this
+once with the `swiftc` that comes with the Command Line Tools:
+
+```swift
+import CoreGraphics; import Foundation
+let target = Int(CommandLine.arguments[1])!
+let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                      kCGNullWindowID) as? [[String: Any]] ?? []
+for w in list where (w[kCGWindowOwnerPID as String] as? Int) == target {
+  print("onscreen=\(w[kCGWindowIsOnscreen as String] ?? false) layer=\(w[kCGWindowLayer as String] ?? -1)")
+}
+```
+
+`onscreen=true layer=0` is a normal application window. No output at all means the process owns
+none, which is the windowless Node fallback. Window titles read back as empty without Screen
+Recording permission — that is expected and does not mean the window is missing.
+
+That last one must print the fake game path. If it prints the path of the Node binary instead,
+Discord sees a process called `node` and detection cannot work. When a placeholder dies on its
+own, macOS files the reason in `~/Library/Logs/DiagnosticReports/<name>-*.ips` — read `exception`
+and `termination` out of the JSON body; a `CODESIGNING` / `Launch Constraint Violation` entry
+there is the OS refusing to run the file at all.
 
 ## Architecture
 
@@ -93,7 +131,10 @@ Three constraints were each learned by breaking them. Do not "simplify" past the
    The primary tier compiles a real 5 KB WinForms app with `csc.exe` (ships with the .NET
    Framework) whose message loop keeps a titled window open, and it is spawned with
    `windowsHide: false`. This mirrors what `discord-quest-completer`'s WinAPI runner does
-   (`CreateWindowExW` + `ShowWindow(SW_SHOWNORMAL)` + message loop). What that window *shows*
+   (`CreateWindowExW` + `ShowWindow(SW_SHOWNORMAL)` + message loop). macOS has the same
+   requirement and its own answer: `compileMac()` builds a ~56 KB Cocoa app (clang + the Cocoa
+   SDK from the Xcode Command Line Tools) that runs `NSApplication` at
+   `NSApplicationActivationPolicyRegular` and holds an `NSWindow` on screen. What that window *shows*
    (game icon, elapsed clock, auto-stop countdown) arrives as command line arguments
    (`--icon <path|-> --started <epoch ms> --duration <minutes>`), never compiled in, so one
    build serves every session and the ~800 ms compile stays cached. Changing the C# source
@@ -110,10 +151,28 @@ Three constraints were each learned by breaking them. Do not "simplify" past the
    the game name in its assembly attributes and is compiled straight to its final path so
    `OriginalFilename` is the game's executable name.
 
-`Spoofer.tiers()` is the fallback chain: `compiled` → `system` (`waitfor.exe` / `/bin/sleep`) →
-`node` (a copy of the running Node binary + `keepalive.js`). Only the compiled tier has a window;
-the others log a warning saying detection may fail. A tier that throws or whose process dies
-within 2 s drops to the next tier automatically.
+`Spoofer.tiers()` is the fallback chain, and it is not the same on every platform:
+Windows gets `compiled` → `system` (`waitfor.exe`) → `node` (a copy of the running Node binary +
+`keepalive.js`), **macOS gets `compiled` → `node`**, and Linux gets `system` (`/bin/sleep`) →
+`node`.
+
+macOS has no `system` tier because it cannot run a copy of one of its own binaries: Apple's
+platform binaries carry a launch constraint tying them to their install path, and the code signing
+monitor SIGKILLs the copy — measured anywhere from 4 s to 113 s after launch, with `CODESIGNING` /
+`Launch Constraint Violation` in the crash report. Do not put `system` back on darwin; it looks
+like it works for a few seconds and then always dies.
+
+`compile()` dispatches to `compileWindows()` (csc.exe) or `compileMac()` (clang + Cocoa); both
+build straight to the placeholder's final path and cache on a `PLACEHOLDER_BUILD` stamp. Only
+those two tiers own a window. Windows and macOS log a per-session warning naming the missing
+toolchain (`.NET Framework` / `xcode-select --install`) when they fall through to a windowless
+tier; Linux prints one `warnOnce()` line saying it has no windowed tier at all and that detection
+there is unverified, so a quiet quest is a known limit rather than a crash.
+
+Two rules move a session down a tier: a placeholder that throws or dies within 2 s was refused
+outright, and a placeholder that keeps being killed abnormally `MAX_TIER_DEATHS` (3) times gets
+abandoned in favour of the next tier. The second rule exists because the macOS kill lands far
+outside the 2 s window — without it the doomed tier was simply restarted forever.
 
 Restart policy differs per tier and is deliberate: `system`/`node` placeholders time out
 (`waitfor` caps at 99999 s) and are respawned so a session lasts until it is stopped, while the
@@ -128,7 +187,27 @@ Other invariants in `spoof.js`:
 - Game ids can be `steam:<appid>`, and executable names come from third-party APIs, so both are
   sanitised before becoming paths (`..` segments dropped, `:` replaced).
 - `copyBinary()` tries a hard link first and falls back to copying (linking from
-  `C:\Program Files` fails with EPERM for standard users).
+  `C:\Program Files` fails with EPERM for standard users) — **except on macOS, where it always
+  copies**. A hard link shares its inode with the source, and `proc_pidpath()` (the call Discord
+  uses to read a process's executable path) then answers with whichever name of that inode the
+  kernel's name cache holds. The same placeholder was observed reporting both its fake path and
+  `.../node/bin/node`, so detection failed intermittently for no visible reason. A real copy owns
+  its inode and has exactly one name.
+- The bundle `Info.plist` (`Spoofer.bundlePlist()`) must keep `NSPrincipalClass` and must **not**
+  set `LSBackgroundOnly`. It used to set it, which silently prevents the process from ever putting
+  a window on screen — the one thing the compiled tier exists to do. The Node tier neither reads
+  nor needs any of it, so one plist serves both.
+- `Spoofer.rebuildBundle()` is the only way to write into a bundle macOS has protected: it drops
+  the whole `.app` and makes an empty one. `installMacBinary()` reaches for it after an
+  EPERM/EACCES on the copy, so a recompile still lands. It refuses a path that is not
+  `<x>.app/Contents/MacOS/<binary>`, because getting that wrong deletes two directories up.
+- `Spoofer.writeBundle()` never rewrites an unchanged `Info.plist`. Once macOS has launched
+  anything out of a `.app`, it stamps the bundle `com.apple.provenance` and App Management
+  protection refuses every write inside it — even after unlinking the file first. Deleting the
+  whole bundle is still allowed, which is the fallback when the plist genuinely has to change.
+  This used to end a session on its very first restart with `EPERM ... Info.plist`. Note it is
+  path-dependent: bundles under `/private/tmp` are writable, ones under `$HOME` are not, so a
+  test in a temp dir will not reproduce it.
 - Stopping uses `taskkill /T /F` on Windows; `stopAll(true)` is the synchronous variant used
   during shutdown, because async kills do not survive `process.exit`.
 
@@ -146,6 +225,15 @@ Other invariants in `spoof.js`:
   removed**: it works technically (extensions mean nothing on Unix) but a `foo.exe` process on
   macOS is impossible for a real game, so it is a trivially detectable spoofing signal. Do not
   reintroduce it. The macOS placeholder also has no window, unlike the Windows one.
+- What is actually verified on macOS, so nobody re-debugs the wrong half. `discord_utils.node`
+  imports `proc_pidpath`, `sysctl`, `proc_pidinfo`, `NSWorkspace`/`NSRunningApplication` and
+  `CGWindowListCopyWindowInfo` — five ways of looking at a process — and the compiled placeholder
+  answers all three that matter: `proc_pidpath()` reports the game's fake path, `lsappinfo` lists
+  it `type="Foreground"` with the right bundle and executable path, and
+  `CGWindowListCopyWindowInfo` finds an on-screen window at layer 0. The Node fallback answers
+  only the first. What is still **not** verified is the last step — whether Discord then credits
+  the quest. Until someone confirms that end to end, do not call macOS working; call it
+  detectable-in-principle.
 - Any executable in a game's detectable entry works — `cod.exe` and `cod26-cod.exe` both get
   Modern Warfare 4 detected. There is no "correct" one to pick.
 - A Steam launch entry's `executable` is frequently just a bootstrapper, with the real game
