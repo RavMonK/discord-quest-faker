@@ -29,12 +29,20 @@ automatically when a tier is unusable:
 | Order | Tier | Platform | How the file is made | Size | RAM | Window |
 |---|---|---|---|---|---|---|
 | 1 | `compiled` | Windows | A real exe compiled with `csc.exe` | 5 KB | ~20 MB | ✅ yes |
+| 1 | `compiled` | macOS | A real Cocoa app compiled with `clang` | ~56 KB | ~25 MB | ✅ yes |
 | 2 | `system` | Windows | A copy of `System32\waitfor.exe` | 64 KB | ~6 MB | ❌ no |
-| 2 | `system` | macOS / Linux | A copy of `/bin/sleep` | ~150 KB | ~2 MB | ❌ no |
+| 2 | `system` | Linux only | A copy of `/bin/sleep` | ~150 KB | ~2 MB | ❌ no |
 | 3 | `node` | any | A copy of the running `node` binary + `keepalive.js` | ~90 MB | ~35 MB | ❌ no |
 
-A tier that throws, or whose process dies within 2 seconds, counts as unusable and the next tier
-is tried immediately.
+**macOS has no `system` tier.** It always SIGKILLs a copy of one of Apple's own binaries placed
+anywhere else (a launch constraint), so the chain there is `compiled` → `node`. The macOS
+`compiled` tier needs the Xcode Command Line Tools (`clang` + the Cocoa SDK); without them it
+falls through to the windowless `node` tier. See [Platform notes](EN-Platform-Notes) for details.
+
+Two things move a session down a tier: a tier that throws, or whose process dies within 2
+seconds, counts as unusable and the next one is tried immediately; and a tier whose process is
+killed abnormally 3 times counts as not working on this machine, so it is abandoned too. The
+second rule exists because some systems take far longer than 2 seconds to kill the placeholder.
 
 ## The single most important constraint: a real window
 

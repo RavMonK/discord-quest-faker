@@ -20,8 +20,13 @@ const KEEPALIVE_SOURCE = [
 // replaced. The cap only exists so a permanently broken placeholder cannot spin forever.
 const MAX_RESTARTS = 500;
 
-// Bumped whenever the C# source below changes, so every cached placeholder is rebuilt once.
-const PLACEHOLDER_BUILD = 2;
+// How many times a tier may be killed before the next tier is tried instead. Restarting twice
+// covers a one-off death; a third means the tier itself does not work on this machine.
+const MAX_TIER_DEATHS = 3;
+
+// Bumped whenever the C# or Objective-C source below changes, so every cached placeholder is
+// rebuilt once.
+const PLACEHOLDER_BUILD = 3;
 
 // Game icons come from Discord's and Steam's CDN. Anything much larger than this is not one.
 const MAX_ICON_BYTES = 4 * 1024 * 1024;
@@ -88,6 +93,7 @@ class Spoofer {
     this.config = config;
     this.running = new Map(); // application id -> session
     this.iconFetches = new Set(); // icon files being downloaded right now
+    this.warned = new Set(); // platform caveats already printed this run
     this.keepalivePath = path.join(config.runtimePath, 'keepalive.js');
     fs.mkdirSync(config.runtimePath, { recursive: true });
     fs.writeFileSync(this.keepalivePath, KEEPALIVE_SOURCE, 'utf8');
@@ -104,9 +110,14 @@ class Spoofer {
    * The copy-based tiers stay as fallbacks for machines without csc.
    */
   static tiers() {
-    return process.platform === 'win32'
-      ? ['compiled', 'system', 'node']
-      : ['system', 'node'];
+    if (process.platform === 'win32') return ['compiled', 'system', 'node'];
+    // macOS has its own compiled tier (clang + Cocoa) and deliberately has no `system` one:
+    // /bin/sleep carries a launch constraint tying it to /bin, so the code signing monitor
+    // SIGKILLs any copy of it anywhere between a few seconds and a couple of minutes in
+    // ("Launch Constraint Violation"). The Node copy has no such constraint and survives, but
+    // it owns no window - so it is the fallback, not the first choice.
+    if (process.platform === 'darwin') return ['compiled', 'node'];
+    return ['system', 'node'];
   }
 
   static cscPath() {
@@ -119,8 +130,34 @@ class Spoofer {
   }
 
   /**
-   * Fallbacks for machines without csc. These keep a process with the right name alive but
-   * own no window, so Discord may not pick them up - the compiled tier is the one that works.
+   * The macOS equivalent of `cscPath()`: clang plus an SDK holding Cocoa. Both come with the
+   * Xcode Command Line Tools, which most machines with a compiler already have - and which
+   * `xcode-select --install` puts there on the ones that do not.
+   */
+  static clangPath() {
+    const clang = spawnSync('xcrun', ['--find', 'clang'], { encoding: 'utf8' });
+    const sdk = spawnSync('xcrun', ['--show-sdk-path'], { encoding: 'utf8' });
+    if (clang.status !== 0 || sdk.status !== 0) return null;
+
+    const binary = String(clang.stdout || '').trim();
+    const root = String(sdk.stdout || '').trim();
+    if (!binary || !root || !fs.existsSync(binary)) return null;
+    // Without Cocoa there is no window to build, which is the whole point of this tier.
+    if (!fs.existsSync(path.join(root, 'System', 'Library', 'Frameworks', 'Cocoa.framework'))) return null;
+    return { binary, sdk: root };
+  }
+
+  /** Objective-C string literal contents - the game name is arbitrary text from an API. */
+  static objcString(text) {
+    return String(text || 'Game')
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"');
+  }
+
+  /**
+   * Fallbacks for machines without a compiler. These keep a process with the right name alive
+   * but own no window, so Discord may not pick them up - a compiled tier is the one that works.
    */
   static systemBinary() {
     if (process.platform === 'win32') {
@@ -143,11 +180,287 @@ class Spoofer {
       .slice(0, 120);
   }
 
+  /** Build a windowed placeholder at `target` with whichever compiler this platform ships. */
+  compile(target, game) {
+    return process.platform === 'darwin'
+      ? this.compileMac(target, game)
+      : this.compileWindows(target, game.name);
+  }
+
+  /**
+   * The macOS twin of `compileWindows()`: a real Cocoa app, compiled straight to its final path
+   * inside the .app bundle.
+   *
+   * Everything Discord's macOS module can look at is satisfied by this and by nothing else we
+   * can build: `proc_pidpath()` reports the game's own path, NSPrincipalClass plus a Regular
+   * activation policy make the process a registered application in NSWorkspace, and the window
+   * shows up in `CGWindowListCopyWindowInfo` on screen at layer 0. The Node placeholder gets the
+   * first of those three and neither of the others.
+   */
+  compileMac(target, game) {
+    const clang = Spoofer.clangPath();
+    if (!clang) throw new Error('clang with the Cocoa SDK not found (xcode-select --install)');
+
+    const buildDir = path.join(this.config.runtimePath, '_build');
+    fs.mkdirSync(buildDir, { recursive: true });
+
+    const name = Spoofer.objcString(game.name);
+    const stampPath = path.join(buildDir, Spoofer.signalToken('m', target) + '.json');
+
+    // Compiling costs a second or two, so skip it when this exact file was already built.
+    if (fs.existsSync(target) && fs.existsSync(stampPath)) {
+      try {
+        const stamp = JSON.parse(fs.readFileSync(stampPath, 'utf8'));
+        if (stamp.name === name && stamp.build === PLACEHOLDER_BUILD
+          && stamp.size === fs.statSync(target).size) return target;
+      } catch (err) { /* rebuild */ }
+    }
+
+    // Stands in for the icon until it is downloaded, and forever if there is none.
+    const initial = Spoofer.objcString(String(game.name || '').trim().charAt(0).toUpperCase() || '?');
+    const sourcePath = path.join(buildDir, Spoofer.signalToken('o', target) + '.m');
+    fs.writeFileSync(sourcePath, Spoofer.macSource(name, initial), 'utf8');
+
+    // Compiling into the bundle directly would fail once macOS has protected it, so the binary
+    // is built aside and installed in a step that knows how to recover from that.
+    const built = path.join(buildDir, Spoofer.signalToken('x', target) + '.bin');
+    const result = spawnSync(clang.binary, [
+      '-x', 'objective-c', '-fobjc-arc', '-O2', '-isysroot', clang.sdk,
+      '-framework', 'Cocoa', '-o', built, sourcePath
+    ], { timeout: 60000, encoding: 'utf8' });
+
+    if (result.status !== 0 || !fs.existsSync(built)) {
+      throw new Error('clang failed: '
+        + String(result.stderr || result.stdout || result.error || '').trim().split('\n')[0]);
+    }
+
+    this.installMacBinary(built, target, game);
+    fs.writeFileSync(stampPath, JSON.stringify({
+      name,
+      build: PLACEHOLDER_BUILD,
+      size: fs.statSync(target).size
+    }), 'utf8');
+    return target;
+  }
+
+  /**
+   * Move a freshly built binary into its place inside the bundle.
+   *
+   * Creating a file inside a bundle macOS has already launched is refused (App Management
+   * protection, EPERM) even after unlinking the old one - but deleting the whole bundle is
+   * still allowed, so that is the way back in.
+   */
+  installMacBinary(built, target, game) {
+    const place = () => {
+      try { if (fs.existsSync(target)) fs.unlinkSync(target); } catch (err) { /* in use */ }
+      fs.copyFileSync(built, target);
+      fs.chmodSync(target, 0o755);
+    };
+
+    try {
+      place();
+      return target;
+    } catch (err) {
+      // EPERM is App Management protection; EACCES is a directory we plainly cannot write to.
+      if (err.code !== 'EPERM' && err.code !== 'EACCES') throw err;
+    }
+
+    Spoofer.rebuildBundle(target, game.id);
+    place();
+    return target;
+  }
+
+  /**
+   * Drop the .app bundle around `target` and build an empty one back, returning its
+   * Contents/MacOS directory. This is the only way into a bundle macOS has protected: writing
+   * inside it is refused, deleting it is not.
+   */
+  static rebuildBundle(target, gameId) {
+    // <bundle>/Contents/MacOS/<binary> - anything else means there is no bundle here to rebuild.
+    const macosDir = path.dirname(target);
+    const bundleDir = path.dirname(path.dirname(macosDir));
+    if (path.basename(macosDir) !== 'MacOS' || !bundleDir.toLowerCase().endsWith('.app')) {
+      throw new Error('could not write ' + path.basename(target) + ' into its bundle, and '
+        + bundleDir + ' is not one that can be rebuilt');
+    }
+
+    fs.rmSync(bundleDir, { recursive: true, force: true });
+    fs.mkdirSync(macosDir, { recursive: true });
+    fs.writeFileSync(path.join(bundleDir, 'Contents', 'Info.plist'),
+      Spoofer.bundlePlist(path.basename(target), gameId), 'utf8');
+    return macosDir;
+  }
+
+  /**
+   * The Objective-C the macOS placeholder is built from.
+   *
+   * The window is the point: on Windows Discord wants a process that owns a real visible window,
+   * and macOS is the same shape of problem - a bare process is only a path, while this one is a
+   * registered application that owns an on-screen window.
+   *
+   * What the window shows beyond that is for the person running it: the game's icon, how long
+   * the session has been going, and when it stops by itself. Those arrive as command line
+   * arguments rather than compiled in, so one build serves every session.
+   */
+  static macSource(name, initial) {
+    return [
+      '#import <Cocoa/Cocoa.h>',
+      '#import <math.h>',
+      '',
+      'static NSString *const kName = @"' + name + '";',
+      'static NSString *const kInitial = @"' + initial + '";',
+      '',
+      'static NSString *ArgValue(NSString *flag) {',
+      '    NSArray<NSString *> *args = [[NSProcessInfo processInfo] arguments];',
+      '    for (NSUInteger i = 1; i + 1 < args.count; i++) {',
+      '        if ([args[i] isEqualToString:flag]) return args[i + 1];',
+      '    }',
+      '    return nil;',
+      '}',
+      '',
+      'static NSString *Clock(double seconds) {',
+      '    if (isnan(seconds) || seconds < 0) seconds = 0;',
+      '    long total = (long)floor(seconds);',
+      '    return [NSString stringWithFormat:@"%02ld:%02ld:%02ld", total / 3600, (total / 60) % 60, total % 60];',
+      '}',
+      '',
+      '@interface Placeholder : NSObject <NSApplicationDelegate>',
+      '@end',
+      '',
+      '@implementation Placeholder {',
+      '    NSWindow *_window;',
+      '    NSTextField *_elapsed;',
+      '    NSTextField *_stops;',
+      '    NSTextField *_initial;',
+      '    NSImageView *_art;',
+      '    NSString *_iconPath;',
+      '    double _startedAt;',
+      '    double _durationMinutes;',
+      '    BOOL _artLoaded;',
+      '}',
+      '',
+      '- (NSTextField *)labelWith:(NSString *)text size:(CGFloat)size bold:(BOOL)bold dim:(BOOL)dim {',
+      '    NSTextField *field = [NSTextField labelWithString:text];',
+      '    field.font = bold ? [NSFont boldSystemFontOfSize:size] : [NSFont systemFontOfSize:size];',
+      '    if (dim) field.textColor = [NSColor secondaryLabelColor];',
+      '    return field;',
+      '}',
+      '',
+      '- (void)applicationDidFinishLaunching:(NSNotification *)note {',
+      '    _startedAt = [ArgValue(@"--started") doubleValue] / 1000.0;',
+      '    if (_startedAt <= 0) _startedAt = [[NSDate date] timeIntervalSince1970];',
+      '    _durationMinutes = [ArgValue(@"--duration") doubleValue];',
+      '    NSString *icon = ArgValue(@"--icon");',
+      '    _iconPath = (icon.length && ![icon isEqualToString:@"-"]) ? icon : nil;',
+      '',
+      '    _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 430, 172)',
+      '        styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable)',
+      '          backing:NSBackingStoreBuffered defer:NO];',
+      '    _window.title = kName;',
+      '    _window.releasedWhenClosed = NO;',
+      '',
+      '    _art = [[NSImageView alloc] init];',
+      '    _art.imageScaling = NSImageScaleProportionallyUpOrDown;',
+      '    _art.hidden = YES;',
+      '',
+      '    _initial = [self labelWith:kInitial size:40 bold:YES dim:NO];',
+      '    _initial.textColor = [NSColor tertiaryLabelColor];',
+      '    _initial.alignment = NSTextAlignmentCenter;',
+      '',
+      '    NSView *badge = [[NSView alloc] init];',
+      '    for (NSView *child in @[_initial, _art]) {',
+      '        child.translatesAutoresizingMaskIntoConstraints = NO;',
+      '        [badge addSubview:child];',
+      '        [NSLayoutConstraint activateConstraints:@[',
+      '            [child.leadingAnchor constraintEqualToAnchor:badge.leadingAnchor],',
+      '            [child.trailingAnchor constraintEqualToAnchor:badge.trailingAnchor],',
+      '            [child.centerYAnchor constraintEqualToAnchor:badge.centerYAnchor]',
+      '        ]];',
+      '    }',
+      '    [NSLayoutConstraint activateConstraints:@[',
+      '        [badge.widthAnchor constraintEqualToConstant:88],',
+      '        [badge.heightAnchor constraintEqualToConstant:88],',
+      '        [_art.heightAnchor constraintEqualToConstant:88]',
+      '    ]];',
+      '',
+      '    _elapsed = [self labelWith:@"elapsed 00:00:00" size:13 bold:NO dim:NO];',
+      '    _stops = [self labelWith:@"" size:11 bold:NO dim:YES];',
+      '',
+      '    NSStackView *text = [NSStackView stackViewWithViews:@[',
+      '        [self labelWith:kName size:17 bold:YES dim:NO], _elapsed, _stops,',
+      '        [self labelWith:@"Closing this window ends the session." size:11 bold:NO dim:YES]',
+      '    ]];',
+      '    text.orientation = NSUserInterfaceLayoutOrientationVertical;',
+      '    text.alignment = NSLayoutAttributeLeading;',
+      '    text.spacing = 5;',
+      '',
+      '    NSStackView *row = [NSStackView stackViewWithViews:@[badge, text]];',
+      '    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;',
+      '    row.alignment = NSLayoutAttributeCenterY;',
+      '    row.spacing = 18;',
+      '    row.translatesAutoresizingMaskIntoConstraints = NO;',
+      '',
+      '    [_window.contentView addSubview:row];',
+      '    [NSLayoutConstraint activateConstraints:@[',
+      '        [row.leadingAnchor constraintEqualToAnchor:_window.contentView.leadingAnchor constant:22],',
+      '        [row.trailingAnchor constraintLessThanOrEqualToAnchor:_window.contentView.trailingAnchor constant:-22],',
+      '        [row.centerYAnchor constraintEqualToAnchor:_window.contentView.centerYAnchor]',
+      '    ]];',
+      '',
+      '    [_window center];',
+      '    [_window makeKeyAndOrderFront:nil];',
+      '',
+      '    [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) { [self tick]; }];',
+      '    [self tick];',
+      '}',
+      '',
+      '- (void)tick {',
+      '    double elapsed = [[NSDate date] timeIntervalSince1970] - _startedAt;',
+      '    _elapsed.stringValue = [NSString stringWithFormat:@"elapsed %@", Clock(elapsed)];',
+      '    _stops.stringValue = _durationMinutes > 0',
+      '        ? [NSString stringWithFormat:@"stops by itself in %@", Clock(_durationMinutes * 60.0 - elapsed)]',
+      '        : @"runs until you stop it";',
+      '',
+      '    // The icon is downloaded while the session is already running, so keep looking for it.',
+      '    if (!_artLoaded && _iconPath && [[NSFileManager defaultManager] fileExistsAtPath:_iconPath]) {',
+      '        NSImage *image = [[NSImage alloc] initWithContentsOfFile:_iconPath];',
+      '        if (image) {',
+      '            _art.image = image;',
+      '            _art.hidden = NO;',
+      '            _initial.hidden = YES;',
+      '            NSApp.applicationIconImage = image;',
+      '            _artLoaded = YES;',
+      '        }',
+      '    }',
+      '}',
+      '',
+      '- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app { return YES; }',
+      '',
+      '@end',
+      '',
+      '// NSApplication only holds its delegate weakly, so the strong reference lives here.',
+      'static Placeholder *gDelegate = nil;',
+      '',
+      'int main(int argc, const char *argv[]) {',
+      '    @autoreleasepool {',
+      '        NSApplication *app = [NSApplication sharedApplication];',
+      '        // Regular is what lists the process in NSWorkspace runningApplications, beside real apps.',
+      '        [app setActivationPolicy:NSApplicationActivationPolicyRegular];',
+      '        gDelegate = [[Placeholder alloc] init];',
+      '        app.delegate = gDelegate;',
+      '        [app run];',
+      '    }',
+      '    return 0;',
+      '}',
+      ''
+    ].join('\n');
+  }
+
   /**
    * Compile the placeholder straight to its final path, so the version info Windows reads
    * (OriginalFilename) is the game's executable name rather than a borrowed one.
    */
-  compile(target, displayName) {
+  compileWindows(target, displayName) {
     const csc = Spoofer.cscPath();
     if (!csc) throw new Error('csc.exe (.NET Framework) not found');
 
@@ -487,6 +800,56 @@ class Spoofer {
   }
 
   /**
+   * Info.plist for a placeholder bundle.
+   *
+   * There is deliberately no LSBackgroundOnly here: it used to be set, and it stops the bundle
+   * from ever putting a window on screen - which is exactly what the compiled tier needs to do.
+   * NSPrincipalClass is what lets the process register as a real application, so it turns up in
+   * NSWorkspace's runningApplications the way a game does. The Node tier ignores all of it.
+   */
+  static bundlePlist(binaryName, gameId) {
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+      '<plist version="1.0"><dict>',
+      '  <key>CFBundleExecutable</key><string>' + binaryName + '</string>',
+      '  <key>CFBundleName</key><string>' + binaryName + '</string>',
+      '  <key>CFBundleIdentifier</key><string>com.discordquestfaker.g' + gameId + '</string>',
+      '  <key>CFBundlePackageType</key><string>APPL</string>',
+      '  <key>NSPrincipalClass</key><string>NSApplication</string>',
+      '  <key>NSHighResolutionCapable</key><true/>',
+      '</dict></plist>'
+    ].join('\n');
+  }
+
+  /**
+   * Create - or reuse - the .app bundle at `bundleDir` carrying `plist` as its Info.plist,
+   * and return its Contents/MacOS directory.
+   *
+   * Once macOS has launched anything out of a bundle it stamps the bundle with
+   * com.apple.provenance, and App Management protection then refuses every write inside it.
+   * Rewriting Info.plist fails with EPERM from that point on, which used to end the session on
+   * its first restart. An unchanged plist needs no write at all; a changed one is handled by
+   * dropping the whole bundle - removing it is still permitted - and building it again.
+   */
+  static writeBundle(bundleDir, plist) {
+    const plistPath = path.join(bundleDir, 'Contents', 'Info.plist');
+    const macosDir = path.join(bundleDir, 'Contents', 'MacOS');
+    let current = null;
+    try { current = fs.readFileSync(plistPath, 'utf8'); } catch (err) { /* not built yet */ }
+
+    if (current === plist) {
+      if (!fs.existsSync(macosDir)) fs.mkdirSync(macosDir, { recursive: true });
+      return macosDir;
+    }
+    if (current !== null) fs.rmSync(bundleDir, { recursive: true, force: true });
+
+    fs.mkdirSync(macosDir, { recursive: true });
+    fs.writeFileSync(plistPath, plist, 'utf8');
+    return macosDir;
+  }
+
+  /**
    * Create the fake executable on disk and return its path.
    * The directory prefix from the API ("_retail_/wow-64.exe") is recreated because Discord
    * matches the tail of the full path, not just the file name.
@@ -507,19 +870,7 @@ class Spoofer {
       // path then ends with Foo.app/Contents/MacOS/Foo exactly like the real game.
       const binaryName = base.slice(0, -4);
       const bundleDir = path.join(this.config.runtimePath, gameDirName, ...parents, base);
-      const macosDir = path.join(bundleDir, 'Contents', 'MacOS');
-      fs.mkdirSync(macosDir, { recursive: true });
-      fs.writeFileSync(path.join(bundleDir, 'Contents', 'Info.plist'), [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-        '<plist version="1.0"><dict>',
-        '  <key>CFBundleExecutable</key><string>' + binaryName + '</string>',
-        '  <key>CFBundleName</key><string>' + binaryName + '</string>',
-        '  <key>CFBundleIdentifier</key><string>com.discordquestfaker.g' + game.id + '</string>',
-        '  <key>CFBundlePackageType</key><string>APPL</string>',
-        '  <key>LSBackgroundOnly</key><true/>',
-        '</dict></plist>'
-      ].join('\n'), 'utf8');
+      const macosDir = Spoofer.writeBundle(bundleDir, Spoofer.bundlePlist(binaryName, game.id));
       target = path.join(macosDir, binaryName);
     } else {
       const gameDir = path.join(this.config.runtimePath, gameDirName, ...parents);
@@ -536,7 +887,7 @@ class Spoofer {
    */
   provision(target, tier, game, exe, session) {
     if (tier === 'compiled') {
-      this.compile(target, game.name);
+      this.compile(target, game);
       // What the window shows about this particular run travels as arguments, so the compiled
       // file stays the same across sessions and does not have to be rebuilt for each one.
       return {
@@ -577,20 +928,32 @@ class Spoofer {
    * Put a runnable copy of `source` at `target`.
    * A hard link costs no disk space, so it is tried first; copying is the fallback when the
    * source lives on another volume or in a directory we may not link from (Program Files).
+   *
+   * macOS is the exception: a hard link shares its inode with the source, and proc_pidpath()
+   * - the call Discord uses to read a process's executable path - then answers with whichever
+   * name of that inode the kernel's cache happens to hold. Observed both ways for the same
+   * placeholder, so on Discord's side the process is sometimes "node" and detection silently
+   * fails. A real copy has its own inode and only one name.
    */
   copyBinary(source, target) {
     const sourceStat = fs.statSync(source);
+    const mayLink = process.platform !== 'darwin';
 
     if (fs.existsSync(target)) {
       const targetStat = fs.statSync(target);
-      const same = targetStat.ino !== 0 && targetStat.ino === sourceStat.ino;
-      if (same || targetStat.size === sourceStat.size) return target; // already usable
+      const shared = targetStat.ino !== 0 && targetStat.ino === sourceStat.ino;
+      // A shared inode is free reuse where linking is allowed, and precisely the thing that
+      // has to be thrown away where it is not.
+      const usable = shared ? mayLink : targetStat.size === sourceStat.size;
+      if (usable) return target;
       try { fs.unlinkSync(target); } catch (err) { return target; /* locked = in use */ }
     }
 
-    try {
-      fs.linkSync(source, target);
-    } catch (linkErr) {
+    let linked = false;
+    if (mayLink) {
+      try { fs.linkSync(source, target); linked = true; } catch (err) { /* copy instead */ }
+    }
+    if (!linked) {
       try {
         fs.copyFileSync(source, target);
       } catch (copyErr) {
@@ -671,7 +1034,8 @@ class Spoofer {
       stopping: false,
       tier: null,
       launchedAt: 0,
-      restarts: 0
+      restarts: 0,
+      tierDeaths: 0
     };
 
     const label = game.name + ' / ' + exe.name;
@@ -700,9 +1064,22 @@ class Spoofer {
           detached: false
         });
 
-        if (!plan.hasWindow && process.platform === 'win32') {
-          console.warn('[spoof] ' + label + ': the ' + tiers[i] + ' placeholder has no window, '
-            + 'so Discord may not detect it (install the .NET Framework so csc.exe is available)');
+        // Say this out loud rather than reporting a bare success: a windowless placeholder is
+        // the tier that Discord was never confirmed to detect.
+        if (!plan.hasWindow) {
+          if (process.platform === 'win32') {
+            console.warn('[spoof] ' + label + ': the ' + tiers[i] + ' placeholder has no window, '
+              + 'so Discord may not detect it (install the .NET Framework so csc.exe is available)');
+          } else if (process.platform === 'darwin') {
+            console.warn('[spoof] ' + label + ': the ' + tiers[i] + ' placeholder has no window, '
+              + 'so Discord may not detect it (run xcode-select --install so clang and the Cocoa '
+              + 'SDK are available)');
+          } else {
+            this.warnOnce('[spoof] the ' + process.platform + ' placeholder owns no window, and '
+              + 'there is no windowed tier for this platform. Whether Discord detects a windowless '
+              + 'process here is unverified, so a quest that never moves is a known limit rather '
+              + 'than a crash.');
+          }
         }
 
         // No pid means the spawn failed outright (missing binary, blocked by policy, a file
@@ -717,6 +1094,7 @@ class Spoofer {
           continue;
         }
 
+        if (session.tier !== i) session.tierDeaths = 0; // a fresh tier starts with a clean slate
         session.path = fakePath;
         session.pid = child.pid;
         session.child = child;
@@ -737,13 +1115,37 @@ class Spoofer {
           }
 
           const aliveMs = Date.now() - session.launchedAt;
+          // code === null means a signal ended it, which is no cleaner than a non-zero code.
+          const abnormal = code !== 0;
 
           // A placeholder that dies at once was refused (policy, a bad argument) rather than
           // stopped - move down to the next tier instead of giving up.
-          if (aliveMs < 2000 && code !== 0) {
+          if (abnormal && aliveMs < 2000) {
             console.error('[spoof] ' + label + ': ' + tiers[i] + ' placeholder exited with code ' + code);
             if (!retry(i + 1)) this.cleanup(session);
             return;
+          }
+
+          // A tier the OS keeps killing will not start working on the next attempt, and the kill
+          // can land long past the grace period above: macOS took anywhere from 4 to 113 seconds
+          // to SIGKILL a copied platform binary. Restart a couple of times in case the death was
+          // a one-off, then move down a tier instead of restarting the same doomed placeholder.
+          if (abnormal && plan.restartOnExit) {
+            session.tierDeaths += 1;
+            if (session.tierDeaths >= MAX_TIER_DEATHS) {
+              const killed = '[spoof] ' + label + ': the ' + tiers[i] + ' placeholder keeps being '
+                + 'killed (' + session.tierDeaths + 'x, last: code=' + code + ' signal=' + signal + ')';
+              if (i + 1 < tiers.length) {
+                console.error(killed + ' - falling back to the ' + tiers[i + 1] + ' placeholder');
+                if (retry(i + 1)) return;
+              } else {
+                // Nothing better to switch to, so the restart below still runs - but say plainly
+                // that it is futile instead of letting the log look like normal churn.
+                this.warnOnce('[spoof] ' + label + ': the ' + tiers[i] + ' placeholder keeps being '
+                  + 'killed and it is the last tier available, so this session will go on '
+                  + 'restarting it without ever being detected');
+              }
+            }
           }
 
           // Placeholders that can time out get replaced so the session lasts until it is
@@ -803,6 +1205,13 @@ class Spoofer {
     console.log('[spoof] started "' + game.name + '" as ' + exe.name
       + ' (pid ' + session.pid + ', ' + tiers[session.tier] + ' placeholder)');
     return { ok: true, executable: exe.name, session: this.describe(session) };
+  }
+
+  /** Print a platform-level caveat once per run rather than on every session. */
+  warnOnce(message) {
+    if (this.warned.has(message)) return;
+    this.warned.add(message);
+    console.warn(message);
   }
 
   cleanup(session) {
