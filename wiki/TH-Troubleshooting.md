@@ -45,6 +45,8 @@
 
      ได้ `0` = ไม่มีหน้าต่าง แปลว่ากำลังใช้ชั้นสำรอง — ดูในเทอร์มินัลว่ามี warning
      `the ... placeholder has no window` ไหม แล้วติดตั้ง .NET Framework
+     บน Linux คำถามเดียวกันใช้ `xwininfo -root -tree | grep -i <ชื่อเกม>` ถ้าไม่เจออะไรเลย
+     = กำลังใช้ชั้นที่ไม่มีหน้าต่าง และ warning จะบอกว่าขาดอะไร (C compiler หรือ `DISPLAY`)
 
 ## อ่าน log ในเทอร์มินัล
 

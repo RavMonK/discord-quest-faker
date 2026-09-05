@@ -30,6 +30,7 @@ automatically when a tier is unusable:
 |---|---|---|---|---|---|---|
 | 1 | `compiled` | Windows | A real exe compiled with `csc.exe` | 5 KB | ~20 MB | ✅ yes |
 | 1 | `compiled` | macOS | A real Cocoa app compiled with `clang` | ~56 KB | ~25 MB | ✅ yes |
+| 1 | `compiled` | Linux | A real X11 program compiled with `cc` | ~72 KB | ~2 MB | ✅ yes |
 | 2 | `system` | Windows | A copy of `System32\waitfor.exe` | 64 KB | ~6 MB | ❌ no |
 | 2 | `system` | Linux only | A copy of `/bin/sleep` | ~150 KB | ~2 MB | ❌ no |
 | 3 | `node` | any | A copy of the running `node` binary + `keepalive.js` | ~90 MB | ~35 MB | ❌ no |
@@ -38,6 +39,11 @@ automatically when a tier is unusable:
 anywhere else (a launch constraint), so the chain there is `compiled` → `node`. The macOS
 `compiled` tier needs the Xcode Command Line Tools (`clang` + the Cocoa SDK); without them it
 falls through to the windowless `node` tier. See [Platform notes](EN-Platform-Notes) for details.
+
+**The Linux window needs nothing but a compiler.** The X11 placeholder reaches Xlib through
+`dlopen`, so there are no X11 headers to install and no `-lX11` to link — any of `cc`, `gcc`,
+`clang` (or `$CC`) builds it. With no compiler on the machine, or no `DISPLAY` to map a window
+on, the chain drops to `system` (a copy of `/bin/sleep`) and says which half is missing.
 
 Two things move a session down a tier: a tier that throws, or whose process dies within 2
 seconds, counts as unusable and the next one is tried immediately; and a tier whose process is

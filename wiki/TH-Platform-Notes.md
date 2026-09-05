@@ -10,7 +10,7 @@
 |---|---|---|---|
 | **Windows** | 10,447 | ✅ มี (ชั้น `compiled`) | ใช้งานได้เต็มรูปแบบ ทดสอบแล้ว |
 | **macOS** | **62** | ✅ มี (ชั้น `compiled`) | ต้องมี Xcode CLT · ครบทุกสัญญาณที่ Discord อ่านได้ แต่ยังไม่ยืนยันว่านับ quest ให้ |
-| **Linux** | 8 | ❌ ไม่มี (`/bin/sleep`) | จำกัดมาก และยังไม่ได้ทดสอบบนเครื่องจริง |
+| **Linux** | 8 | ✅ มี (ชั้น `compiled`) | ต้องมี C compiler และ session ของ X/XWayland · ยืนยันแล้วว่าหน้าต่างขึ้นจริงบน X11 แต่ยังไม่ยืนยันว่า Discord นับ quest ให้ |
 
 โปรแกรมจะแสดง **เฉพาะเกมที่มี executable ของระบบที่กำลังรันอยู่** บน Mac จึงเห็นแค่ 62 เกมนั้น
 ส่วนเกมที่มีแต่ฝั่ง Windows (เช่น MARVEL Tōkon) จะไม่ขึ้นมาเลย
@@ -43,6 +43,9 @@
 2. **ชั้น `compiled` ของ macOS ต้องมี Xcode Command Line Tools** — ใช้ `clang` + Cocoa SDK
    ถ้าไม่มีจะตกไปใช้ชั้น `node` ที่ **ไม่มีหน้าต่าง** และโปรแกรมจะเตือนพร้อมบอกให้รัน
    `xcode-select --install`
+3. **ชั้น `compiled` ของ Linux ต้องมี C compiler กับจอ** — `cc`, `gcc` หรือ `clang` ตัวใดก็ได้
+   (หรือตัวที่ `$CC` ชี้ไว้) และต้องมี `DISPLAY` ที่ชี้ไป session ของ X หรือ XWayland ถ้าขาดอย่างใด
+   อย่างหนึ่งจะถอยไปใช้ชั้น `system` ที่ **ไม่มีหน้าต่าง** โดย warning จะบอกว่าขาดฝั่งไหน
 
 entry ฝั่ง macOS ที่เป็น `.app` จะได้ app bundle ขั้นต่ำมาให้ (มี `Info.plist` กับไฟล์ไบนารีใน
 `Contents/MacOS/`) เพื่อให้ path ของโปรเซสลงท้ายด้วย `Foo.app/Contents/MacOS/Foo` เหมือนเกมจริง
@@ -81,6 +84,35 @@ entry ฝั่ง macOS ที่เป็น `.app` จะได้ app bundle
   `com.apple.provenance` และ App Management protection จะปฏิเสธการเขียนทุกอย่างข้างใน `.app`
   (เป็น `EPERM` แม้จะ unlink ก่อนก็ตาม) ลบทั้ง bundle ยังทำได้ ซึ่งใช้เป็นทางออกเวลาต้องเปลี่ยน plist จริง ๆ
 
+### หน้าต่างบน Linux
+
+`compileLinux()` คอมไพล์โปรแกรม X11 ขนาด ~72 KB ด้วย compiler อะไรก็ได้ที่มีในเครื่อง ลงไปที่
+path ปลอมตรง ๆ แล้วเปิดหน้าต่างขนาดคงที่ 480x160 หนึ่งบาน แสดงชื่อเกม, ชื่อ executable ที่กำลัง
+สวมรอย, เวลาที่เดินมาแล้ว และเวลาที่จะหยุดเอง — ปิดหน้าต่าง = จบ session เหมือน Windows กับ macOS
+
+สองเรื่องที่ทำให้ชั้นนี้เบาพอจะเป็นชั้นแรกได้:
+
+- **เรียก Xlib ผ่าน `dlopen` ไม่ได้ link** ทุกฟังก์ชันถูก lookup ด้วยชื่อตอนรัน จึงไม่ต้องมี header
+  ของ X11, ไม่ต้องมี dev package และไม่ต้อง `-lX11` — ขอแค่ compiler ส่วน `libX11.so.6` มีอยู่แล้ว
+  ในทุกเครื่องที่รัน session ของ X หรือ XWayland
+- **สิ่งที่คอมไพล์ติดไปมีแค่ข้อความ** ชื่อเกม, ป้ายชื่อ และชื่อไฟล์กลายเป็น string constant ส่วนนาฬิกา
+  กับเวลาหยุดเองส่งเข้าไปทาง command line จึงคอมไพล์ครั้งเดียวใช้ได้ทุก session ของเกมนั้น และถูก cache ไว้
+
+สิ่งที่ทำไม่ได้คือแสดงรูปเกม เพราะการ decode PNG ต้องมี library ซึ่งชั้นนี้ไม่มีเลย จึงแสดงตัวอักษรแรก
+ของชื่อเกมแทน และบน Linux ไม่ดาวน์โหลดไอคอนตั้งแต่แรก ข้อความที่วาดยังถูกพับให้เป็น ASCII ด้วย
+(`MARVEL Tōkon` → `MARVEL Tokon`) เพราะ core font ของ X เป็นแบบ single byte — ชื่อจริงบนแถบ
+หัวหน้าต่างส่งผ่าน `_NET_WM_NAME` เป็น UTF-8 จึงยังมีวรรณยุกต์ครบ
+
+หน้าต่างยังพา property ที่หน้าต่างของแอปจริงพาไปด้วย: `WM_CLASS` (ชื่อ executable กับชื่อเกม),
+`_NET_WM_PID` (pid ของตัวเอง) และ `WM_DELETE_WINDOW` เพื่อให้ window manager "ขอ" ให้ปิด
+แทนที่จะฆ่าทิ้ง
+
+**ยืนยันอะไรแล้ว และอะไรยัง** บน X11 หน้าต่างขึ้นจริง — map แล้ว ขนาด 480x160 ชื่อและ class ตรงกับเกม
+`_NET_WM_PID` ตรงกับ pid ของ placeholder และ `/proc/<pid>/exe` เป็น path ปลอมของเกม ส่วนที่ว่า
+Discord ฝั่ง Linux **นับ quest ให้หรือไม่ยังไม่ยืนยัน** เหมือนกับ macOS การตรวจจับฝั่ง Linux ของ
+Discord อ่าน `/proc` ซึ่งชั้นที่ไม่มีหน้าต่างก็ตอบได้ หน้าต่างจึงมีไว้เพราะทุกแพลตฟอร์มที่ผ่านมาต้องการมัน
+และเพราะ session ที่มองไม่เห็นคือ session ที่ลืมกดหยุด
+
 ## ทำไมไม่เปิดให้รันเกม Windows บน macOS
 
 ในทางเทคนิคทำได้ — บน Unix นามสกุลไฟล์ไม่มีความหมาย จะสร้างและรันไฟล์ชื่อ `redsteam.exe` บน Mac
@@ -95,10 +127,31 @@ entry ฝั่ง macOS ที่เป็น `.app` จะได้ app bundle
 
 | ชั้น | Windows | macOS / Linux |
 |---|---|---|
-| 1 `compiled` | `csc.exe` → exe มีหน้าต่าง 5 KB | macOS: `clang` + Cocoa → แอปมีหน้าต่าง ~56 KB · Linux: ไม่มีชั้นนี้ |
+| 1 `compiled` | `csc.exe` → exe มีหน้าต่าง 5 KB | macOS: `clang` + Cocoa → แอปมีหน้าต่าง ~56 KB · Linux: `cc`/`gcc`/`clang` + Xlib ผ่าน `dlopen` → โปรแกรม X11 มีหน้าต่าง ~72 KB |
 | 2 `system` | ก๊อป `System32\waitfor.exe` + signal token เฉพาะตัว | Linux: ก๊อป `/bin/sleep 999999` · macOS: **ไม่มีชั้นนี้** |
 | 3 `node` | ก๊อป `node.exe` + `keepalive.js` | ก๊อป `node` + `keepalive.js` (`chmod 755`) |
 | วิธีหยุด | `taskkill /PID <pid> /T /F` | `SIGTERM` แล้วตามด้วย `SIGKILL` ใน 3 วินาที |
+
+## คำสั่งตรวจสอบ (Linux)
+
+placeholder รันอยู่จริงไหม และรันจาก path ปลอมหรือเปล่า:
+
+```bash
+for d in /proc/[0-9]*; do case "$(readlink $d/exe)" in *data/runtime*) echo "${d#/proc/} -> $(readlink $d/exe)";; esac; done
+```
+
+มีหน้าต่างไหม (สองคำสั่งนี้มาจากแพ็กเกจ `x11-utils`):
+
+```bash
+xwininfo -root -tree | grep -i <ชื่อเกม>       # ต้องเจอขนาด 480x160 พร้อมชื่อเกม
+xprop -id <window id> _NET_WM_PID WM_CLASS    # pid ต้องเป็นของ placeholder
+```
+
+เก็บของที่ค้างอยู่ (server ที่พังกลางทางอาจทิ้ง placeholder ไว้):
+
+```bash
+pkill -f "data/runtime"
+```
 
 ## คำสั่งตรวจสอบ (macOS)
 

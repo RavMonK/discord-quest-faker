@@ -29,7 +29,7 @@ node --check src/spoof.js         # เช็ค syntax ไฟล์เดีย
 | ไฟล์ | ครอบคลุม |
 |---|---|
 | `tests/games.test.js` | `normalize()`, `fold()`, `GameStore` (สร้างด้วย config ที่ชี้ไป temp dir **ไม่ใช่ `config.json` จริง**) |
-| `tests/spoof.test.js` | `materialize()`, `safeName()`, `signalToken()`, `candidates()`/`select()` และ guard แบบ synchronous ของ `startOne()` (รันอยู่แล้ว, `maxConcurrent`) |
+| `tests/spoof.test.js` | `materialize()`, `safeName()`, `signalToken()`, `candidates()`/`select()`, `cString()`/`asciiLabel()`, `linuxCompiler()`, ซอร์ส Linux ที่ถูกสร้างขึ้น และ guard แบบ synchronous ของ `startOne()` (รันอยู่แล้ว, `maxConcurrent`) |
 | `tests/steam.test.js` | `parseAppId`, `normalizeExecutable`, `executablesInArguments`, `osKeysFor` |
 | `tests/queue.test.js` | `randomBetween`/`clampSeconds`, การจัดการลิสต์ และวงจรเลื่อนคิวทั้งวงจร โดยใช้ spoofer จำลอง (**สร้างพร้อม `save` ของตัวเอง** จึงไม่แตะ `config.json` จริง) |
 
@@ -38,7 +38,7 @@ node --check src/spoof.js         # เช็ค syntax ไฟล์เดีย
 - `tests/server.test.js`: ส่ง HTTP จริงบน loopback ตรวจ Host/Origin/token, request ผิดรูปแบบ, pagination และการบันทึกคิว
 - `tests/security-paths.test.js`: traversal, symlink, executable ที่ถูกแก้แต่ขนาดเท่าเดิม, การเปลี่ยนไฟล์ล้มเหลว และ compiled cache
 - `tests/frontend-api.test.js`: ขอ token และกู้ session เมื่อ server restart ด้วย API helper ตัวจริงของหน้าเว็บ
-- `tests/linux.test.js`: รัน system/Node placeholder จริง ตรวจ `/proc/<pid>/exe`, ปฏิเสธการเริ่มซ้ำ และ auto-stop; ข้ามเมื่อไม่ใช่ Linux
+- `tests/linux.test.js`: รัน placeholder จริงทั้งชั้น system, Node และ compiled ตรวจ `/proc/<pid>/exe`, ปฏิเสธการเริ่มซ้ำ และ auto-stop; ข้ามเมื่อไม่ใช่ Linux ส่วนชั้น compiled ต้องมี compiler กับ `DISPLAY` ด้วย และจะตรวจหน้าต่าง X ผ่าน `xwininfo` เมื่อมีคำสั่งนี้ในเครื่อง
 
 ใช้ patch ล่าสุดของ Node.js 22, 24 หรือ 26 (แนะนำ 24 LTS) เปิด Docker แล้วรันจากรากโปรเจกต์:
 
@@ -58,7 +58,7 @@ mount ซอร์สแบบอ่านอย่างเดียว ข้�
 |---|---|
 | `config.js` → `load()` / `save()` | ทั้งคู่ hardcode path ของ `config.json` จริงใต้รากโปรเจกต์ ไม่มีทางชี้ไป temp file ได้ ทดสอบก็เสี่ยงทับ config จริงของผู้ใช้ |
 | เวลาจริงของช่องว่างในคิว | เทสต์รันด้วยช่วง `0` วินาที ส่วนที่ว่ารอ 30-70 วิจริงไหม เป็นหน้าที่ของ `randomBetween` ซึ่งทดสอบตรง ๆ อยู่แล้ว |
-| GUI placeholder และ compiler บน Windows/macOS | ต้องตรวจกับ OS นั้น; process test ของ Linux รันอัตโนมัติเมื่ออยู่บน Linux |
+| GUI placeholder และ compiler บน Windows/macOS | ต้องตรวจกับ OS นั้น; บน Linux ทั้ง process test และเทสต์หน้าต่าง X11 รันอัตโนมัติ |
 | การ render DOM ฝั่งเว็บ | ทดสอบ API helper ด้วย `node:vm`; ส่วน render ยังต้องใช้เบราว์เซอร์ |
 
 พฤติกรรมที่อยู่นอกขอบเขตนั้น **ตรวจกับ OS จริง ไม่ใช่ผ่าน unit test**
