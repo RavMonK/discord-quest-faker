@@ -36,6 +36,29 @@
       </div>
     </section>
 
+    <section class="panel" id="queuePanel">
+      <div class="panel-head">
+        <h2>Queue <span class="count" id="queueCount">0</span></h2>
+        <div class="queue-controls">
+          <label class="duration" title="A fresh random wait is drawn for every gap, so the run has no rhythm">
+            Gap
+            <input type="number" id="queueDelayMin" min="0" max="3600" step="5" value="30">
+            <span>–</span>
+            <input type="number" id="queueDelayMax" min="0" max="3600" step="5" value="70">
+            sec
+          </label>
+          <button class="btn small ghost" id="queueSkipBtn" hidden>Skip</button>
+          <button class="btn small primary" id="queueStartBtn">Start queue</button>
+          <button class="btn small danger ghost" id="queueClearBtn" hidden>Clear</button>
+        </div>
+      </div>
+      <p class="queue-status" id="queueStatus" hidden></p>
+      <div id="queueList" class="queue-list">
+        <p class="empty">Queue is empty — press ＋ on a game to line it up. Each entry plays for its own
+          auto-stop time, then the next one starts after a random gap.</p>
+      </div>
+    </section>
+
     <section class="panel" id="presetPanel">
       <div class="panel-head">
         <h2>Presets <span class="count" id="presetCount">0</span></h2>

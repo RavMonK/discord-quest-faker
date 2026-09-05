@@ -4,7 +4,7 @@
 
 ---
 
-ห้าโมดูลใต้ `src/` ประกอบกันใน `index.js` ไม่มี dependency ภายนอกเลย ไม่มี build step
+หกโมดูลใต้ `src/` ประกอบกันใน `index.js` ไม่มี dependency ภายนอกเลย ไม่มี build step
 
 ```
 index.js ── parse arg, โหมด CLI, จัดการพอร์ต, สัญญาณปิดโปรแกรม
@@ -12,6 +12,7 @@ index.js ── parse arg, โหมด CLI, จัดการพอร์ต, 
    ├── games.js    GameStore: ดึงลิสต์, cache, ค้นหา, รวมเกมที่เพิ่มเอง
    │      └── steam.js   แปลง Steam appinfo ให้เป็นรูปแบบเดียวกับ entry ของ Discord
    ├── spoof.js    Spoofer: สร้างไฟล์ปลอม, รัน, ดูแล session
+   ├── queue.js    QuestQueue: เล่นทีละเกมต่อกันไป เว้นระยะแบบสุ่ม
    └── server.js   HTTP API + เสิร์ฟไฟล์ static จาก public/
           └── public/   หน้าเว็บควบคุม (HTML/CSS/JS ล้วน)
 ```
@@ -67,6 +68,33 @@ CLI override อย่าง `--port` / `--headless` มีผลกับ confi
 | `ensureIcon(game)` | คืน path ไอคอนทันที โหลดจริงแบบ background |
 | `startOne(game, exe, opts)` | ยิงทีละชั้นจนติด ผูก handler `exit`/`error` ตั้ง timer auto-stop |
 | `stop(key, sync)` | `taskkill /T /F` บน Windows, SIGTERM→SIGKILL บน Unix |
+
+### `queue.js`
+
+`QuestQueue` เล่นรายการเกม **ทีละตัว** — สตาร์ตรายการหนึ่งด้วยเวลา auto-stop ของรายการนั้น
+พอ session จบก็รอแบบสุ่มเป็นวินาที แล้วค่อยสตาร์ตรายการถัดไป
+
+| เมธอด | ทำอะไร |
+|---|---|
+| `add` / `update` / `remove` / `move` / `clear` | จัดการตัวลิสต์ และบันทึกลง `config.json` |
+| `start()` | ตั้งทุกรายการกลับเป็น `pending` แล้วเริ่มตัวแรก คิวที่จบแล้วจึงเล่นซ้ำได้ |
+| `stop(sync)` | หยุดคิวและเกมที่รันอยู่ — `sync` คือแบบที่ใช้ตอนปิดโปรแกรม |
+| `skip()` | หยุดตัวที่เล่นอยู่ (แล้วรอตามปกติ) หรือถ้ากำลังรออยู่ ก็เริ่มตัวถัดไปทันที |
+| `randomDelaySeconds()` | สุ่มใหม่ทุกช่องว่าง จากช่วง `queueDelayMinSeconds`–`queueDelayMaxSeconds` |
+| `onSessionEnd(info)` | callback จาก spoofer ที่ทำให้คิวขยับ |
+| `describe()` | ทุกอย่างที่หน้าเว็บวาด รวม `nextStartAt` สำหรับนับถอยหลัง |
+
+สามข้อที่โมดูลนี้พึ่งพาอยู่:
+
+- **`Spoofer.onSessionEnd`** เป็นทางเดียวที่จะรู้ว่า session จบไปเองแล้ว คิวจะตอบสนองเฉพาะ
+  session key ที่ตัวเองสตาร์ตเท่านั้น เกมที่ผู้ใช้กดเองจึงไม่ทำให้คิวขยับ
+- **สุ่มใหม่ทุกช่องว่าง ด้วย `crypto.randomInt`** — ถ้าใช้ค่าคงที่ หรือสุ่มครั้งเดียวแล้วใช้ทั้งรอบ
+  นั่นคือ pattern ที่ช่วงสุ่มนี้มีไว้เลี่ยงพอดี
+- **`stop()` เคลียร์ `running` ก่อนฆ่า placeholder** เพราะการฆ่าจะไปเรียก callback ตัวเดียวกัน
+  ถ้าลำดับสลับ คิวจะเข้าใจว่า "เกมเล่นจบแล้ว" แล้วสตาร์ตตัวถัดไปทั้งที่ผู้ใช้สั่งหยุด
+
+ตอนปิดโปรแกรมจะหยุดคิวก่อน และใช้การฆ่าแบบ **synchronous** เพราะ `taskkill` แบบ async
+ไม่ได้รันแล้วเมื่อ `process.exit` กำลังทำงาน ไฟล์ปลอมจะค้างอยู่
 
 ### `server.js`
 

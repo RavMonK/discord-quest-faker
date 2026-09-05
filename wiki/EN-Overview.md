@@ -39,6 +39,7 @@ Everything is driven from a local control panel at <http://127.0.0.1:5011>, or f
 | Placeholder owns a real window | A 5 KB exe compiled with `csc.exe`, showing the game icon and elapsed time |
 | Three-tier fallback chain | If a tier is unavailable, the next one is used automatically |
 | Presets | Press **★** to save a game into `config.json` for one-click starts |
+| Queue | Line games up with **＋**: each plays for its own time, then the next starts after a random 30-70 s gap |
 | Auto-stop | Stop by itself after N minutes |
 | Games missing from the list | Add them from a Steam app id / SteamDB URL |
 | Cross-platform | Windows (full), macOS / Linux (limited — see [Platform notes](EN-Platform-Notes)) |
@@ -64,7 +65,7 @@ src/server.js       HTTP API behind the control panel
 src/public/         the control panel (plain HTML/CSS/JS, no framework)
 tests/              test suite (node:test)
 data/               game cache + placeholder binaries (gitignored)
-config.json         your settings and presets (gitignored)
+config.json         your settings, presets and queue (gitignored)
 ```
 
 What each module is responsible for: [Architecture](EN-Architecture).

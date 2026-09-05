@@ -4,7 +4,7 @@
 
 ---
 
-Five modules under `src/`, wired together in `index.js`. No external dependencies, no build step.
+Six modules under `src/`, wired together in `index.js`. No external dependencies, no build step.
 
 ```
 index.js ── argument parsing, CLI modes, port handling, shutdown signals
@@ -12,6 +12,7 @@ index.js ── argument parsing, CLI modes, port handling, shutdown signals
    ├── games.js    GameStore: fetch, cache, search, merge custom games
    │      └── steam.js   turns Steam appinfo into the same shape as a Discord entry
    ├── spoof.js    Spoofer: materialize placeholders, spawn them, own the sessions
+   ├── queue.js    QuestQueue: play one game after another, with a random gap between them
    └── server.js   HTTP API + static files from public/
           └── public/   the control panel (plain HTML/CSS/JS)
 ```
@@ -67,6 +68,35 @@ The heart of the tool — ~890 lines including the placeholder's C# source, expl
 | `ensureIcon(game)` | Returns the icon path immediately, downloading in the background |
 | `startOne(game, exe, opts)` | Tries each tier until one spawns; wires `exit`/`error`; sets the auto-stop timer |
 | `stop(key, sync)` | `taskkill /T /F` on Windows, SIGTERM→SIGKILL on Unix |
+
+### `queue.js`
+
+`QuestQueue` plays a list of games **one at a time**. It starts an entry with that entry's own
+auto-stop time, and when the session ends it waits a random number of seconds before starting the
+next one.
+
+| Method | What it does |
+|---|---|
+| `add` / `update` / `remove` / `move` / `clear` | The list itself, persisted to `config.json` |
+| `start()` | Resets every entry to `pending` and launches the first, so a finished queue replays |
+| `stop(sync)` | Stops the queue and its game; `sync` is the shutdown variant |
+| `skip()` | Stops what is playing (then the usual gap), or starts the next entry now while waiting |
+| `randomDelaySeconds()` | A fresh draw from `queueDelayMinSeconds`–`queueDelayMaxSeconds` per gap |
+| `onSessionEnd(info)` | The spoofer callback that advances the queue |
+| `describe()` | Everything the panel draws, including `nextStartAt` for the countdown |
+
+Three things it depends on being true:
+
+- **`Spoofer.onSessionEnd`** is the only way to learn that a session ended on its own. The queue
+  reacts only to the session key it started, so a game someone starts by hand never moves it.
+- **The gap is drawn per gap, from `crypto.randomInt`.** A fixed wait — or one number reused for
+  the whole run — would be exactly the pattern the range exists to avoid.
+- **`stop()` clears `running` before killing the placeholder.** The kill fires the same
+  session-end callback, and without that ordering the queue would treat its own Stop as "the
+  game finished" and start the next one.
+
+Shutdown stops the queue first, with the **synchronous** kill: an async `taskkill` never runs
+once `process.exit` is on its way, so the placeholder would be orphaned.
 
 ### `server.js`
 

@@ -94,6 +94,7 @@ class Spoofer {
     this.running = new Map(); // application id -> session
     this.iconFetches = new Set(); // icon files being downloaded right now
     this.warned = new Set(); // platform caveats already printed this run
+    this.endListeners = []; // notified once per session that leaves `running`
     this.keepalivePath = path.join(config.runtimePath, 'keepalive.js');
     fs.mkdirSync(config.runtimePath, { recursive: true });
     fs.writeFileSync(this.keepalivePath, KEEPALIVE_SOURCE, 'utf8');
@@ -1104,7 +1105,7 @@ class Spoofer {
         child.on('error', (err) => {
           if (session.child !== child || session.stopping) return;
           console.error('[spoof] ' + label + ': ' + tiers[i] + ' placeholder failed to start (' + err.message + ')');
-          if (!retry(i + 1)) this.cleanup(session);
+          if (!retry(i + 1)) this.cleanup(session, 'failed');
         });
 
         child.on('exit', (code, signal) => {
@@ -1122,7 +1123,7 @@ class Spoofer {
           // stopped - move down to the next tier instead of giving up.
           if (abnormal && aliveMs < 2000) {
             console.error('[spoof] ' + label + ': ' + tiers[i] + ' placeholder exited with code ' + code);
-            if (!retry(i + 1)) this.cleanup(session);
+            if (!retry(i + 1)) this.cleanup(session, 'failed');
             return;
           }
 
@@ -1167,7 +1168,7 @@ class Spoofer {
           }
 
           console.log('[spoof] ' + label + ' stopped running (code=' + code + ' signal=' + signal + ')');
-          this.cleanup(session);
+          this.cleanup(session, code === 0 ? 'exited' : 'crashed');
         });
 
         return i;
@@ -1196,6 +1197,8 @@ class Spoofer {
     if (session.durationMinutes > 0) {
       session.timer = setTimeout(() => {
         console.log('[spoof] ' + game.name + ' / ' + exe.name + ': ' + session.durationMinutes + ' min reached - stopping');
+        // the queue runner tells "its timer ran out" from "someone pressed Stop" by this
+        session.endReason = 'duration';
         this.stop(key);
       }, session.durationMinutes * 60000);
       if (session.timer.unref) session.timer.unref();
@@ -1214,10 +1217,38 @@ class Spoofer {
     console.warn(message);
   }
 
-  cleanup(session) {
+  /**
+   * Be told when a session ends, whichever way it ended (its timer ran out, someone pressed
+   * Stop, the placeholder's window was closed, it crashed). The queue runner uses this to know
+   * when to start the next game; without it nothing outside `running` can tell.
+   * @param {(info: object) => void} fn receives describe(session) plus a `reason`
+   */
+  onSessionEnd(fn) {
+    if (typeof fn === 'function') this.endListeners.push(fn);
+  }
+
+  /**
+   * @param {object} session
+   * @param {string} [reason] 'duration' | 'stopped' | 'exited' | 'crashed' | 'failed' -
+   *   only used when nothing has already recorded a more specific one.
+   */
+  cleanup(session, reason) {
     if (session.timer) clearTimeout(session.timer);
+    if (!session.endReason) session.endReason = reason || 'exited';
     const current = this.running.get(session.key);
-    if (current && current.pid === session.pid) this.running.delete(session.key);
+    // A session that was superseded by another launch never left `running`, so it never ended.
+    if (!current || current.pid !== session.pid) return;
+    this.running.delete(session.key);
+
+    const info = Object.assign(this.describe(session), { reason: session.endReason });
+    // A listener that throws must not take down a stop() or an exit handler mid-way.
+    this.endListeners.forEach((fn) => {
+      try {
+        fn(info);
+      } catch (err) {
+        console.error('[spoof] session-end listener failed: ' + err.message);
+      }
+    });
   }
 
   /**
@@ -1249,7 +1280,7 @@ class Spoofer {
       if (hard.unref) hard.unref();
     }
 
-    this.cleanup(session);
+    this.cleanup(session, 'stopped');
     console.log('[spoof] stopped "' + session.name + '" / ' + session.executable + ' (pid ' + session.pid + ')');
     return { ok: true };
   }
