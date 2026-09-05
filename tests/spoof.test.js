@@ -113,7 +113,9 @@ test('tiers: every platform ends at node, and macOS never offers the system plac
     // A copied /bin/sleep is SIGKILLed by macOS, so that tier must not be on offer - and the
     // windowed placeholder has to be tried before the windowless fallback.
     assert.deepEqual(tiers, ['compiled', 'node']);
-  } else if (process.platform === 'win32') {
+  } else if (process.platform === 'win32' || process.platform === 'linux') {
+    // Linux compiles an X11 window too, and keeps the copied /bin/sleep for machines that
+    // have no compiler or no display.
     assert.deepEqual(tiers, ['compiled', 'system', 'node']);
   } else {
     assert.deepEqual(tiers, ['system', 'node']);
@@ -151,11 +153,60 @@ test('rebuildBundle: refuses a path that is not inside a .app rather than deleti
   assert.ok(fs.existsSync(path.dirname(loose))); // nothing was removed
 });
 
-test('objcString: neutralises quotes and backslashes so an API name cannot break the source', () => {
-  assert.equal(Spoofer.objcString('Say "hi"'), 'Say \\"hi\\"');
-  assert.equal(Spoofer.objcString('back\\slash'), 'back\\\\slash');
-  assert.equal(Spoofer.objcString('two\nlines'), 'two lines');
-  assert.equal(Spoofer.objcString(''), 'Game');
+test('cString: neutralises quotes and backslashes so an API name cannot break the source', () => {
+  assert.equal(Spoofer.cString('Say "hi"'), 'Say \\"hi\\"');
+  assert.equal(Spoofer.cString('back\\slash'), 'back\\\\slash');
+  assert.equal(Spoofer.cString('two\nlines'), 'two lines');
+  assert.equal(Spoofer.cString(''), 'Game');
+});
+
+test('asciiLabel: folds accents away, because a core X font draws single bytes only', () => {
+  assert.equal(Spoofer.asciiLabel('MARVEL T\u014dkon'), 'MARVEL Tokon');
+  assert.equal(Spoofer.asciiLabel('Pok\u00e9mon Unite'), 'Pokemon Unite');
+  // Nothing left to draw: the file name being impersonated is a better label than an empty one.
+  assert.equal(Spoofer.asciiLabel('\u539f\u795e', 'yuanshen.x86_64'), 'yuanshen.x86_64');
+  assert.equal(Spoofer.asciiLabel('', 'fallback'), 'fallback');
+});
+
+test('linuxSource: compiles in the escaped name, the folded label and nothing else', () => {
+  const source = Spoofer.linuxSource(Spoofer.cString('Say "hi"'), 'Say hi', 'game.x86_64', 'S');
+  assert.match(source, /static const char \*kName = "Say \\"hi\\"";/);
+  assert.match(source, /static const char \*kLabel = "Say hi";/);
+  assert.match(source, /static const char \*kFile = "game.x86_64";/);
+  // Xlib is reached through dlopen, which is what keeps this tier free of X11 headers and -lX11.
+  assert.match(source, /dlopen\("libX11\.so\.6", RTLD_LAZY\)/);
+  // The window has to be mapped and named to be a window at all, and the real (UTF-8) name is
+  // the one a window manager shows.
+  assert.match(source, /XMapWindow\(dpy, win\)/);
+  assert.match(source, /_NET_WM_NAME/);
+  assert.match(source, /UTF8_STRING/);
+  // Closing the window ends the session, so the protocol for being asked to close must be set.
+  assert.match(source, /WM_DELETE_WINDOW/);
+});
+
+test('linuxCompiler: takes the first compiler on PATH and honours $CC', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dqf-cc-'));
+  const { PATH, CC } = process.env;
+  try {
+    process.env.PATH = dir;
+    delete process.env.CC;
+    assert.equal(Spoofer.linuxCompiler(), null); // an empty PATH has no compiler to find
+
+    const gcc = path.join(dir, 'gcc');
+    fs.writeFileSync(gcc, '#!/bin/sh\n');
+    fs.chmodSync(gcc, 0o755);
+    assert.equal(Spoofer.linuxCompiler(), gcc);
+
+    const own = path.join(dir, 'my-cc');
+    fs.writeFileSync(own, '#!/bin/sh\n');
+    fs.chmodSync(own, 0o755);
+    process.env.CC = own;
+    assert.equal(Spoofer.linuxCompiler(), own); // $CC wins over anything on PATH
+  } finally {
+    process.env.PATH = PATH;
+    if (CC === undefined) delete process.env.CC; else process.env.CC = CC;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('materialize: rejects a ".." executable name instead of escaping the per-game directory', () => {

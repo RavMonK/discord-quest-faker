@@ -54,12 +54,12 @@ returns 403 to automated requests; the appinfo data is the same). Details in
 
 ### `spoof.js`
 
-The heart of the tool — ~890 lines including the placeholder's C# source, explained in
-[How it works](EN-How-It-Works). The methods that matter:
+The heart of the tool — ~1,740 lines, most of it the placeholder's C#, Objective-C and C
+sources, explained in [How it works](EN-How-It-Works). The methods that matter:
 
 | Method | What it does |
 |---|---|
-| `tiers()` | The fallback chain: `compiled` → `system` → `node` (no first tier on Unix) |
+| `tiers()` | The fallback chain: `compiled` → `system` → `node` (no `system` tier on macOS) |
 | `candidates(game)` | This OS's executables, de-duplicated, launchers last |
 | `select(game, wanted)` | Resolves `"all"` / a name / an index to a list of executables |
 | `materialize(game, exe)` | Builds the placeholder path (directory prefixes, `.app` bundles) |
@@ -114,7 +114,7 @@ panel   POST /api/start { id, executable, durationMinutes }
                  ├── already-running + maxConcurrent guards
                  ├── materialize()      → data/runtime/<id>/<exe>
                  ├── provision('compiled')
-                 │      ├── compile()   → csc.exe (cached)
+                 │      ├── compile()   → csc.exe / clang / cc (cached)
                  │      └── ensureIcon()→ background download
                  ├── spawn(fakePath, args, { windowsHide: false })
                  │      → a window appears  ← what Discord looks for

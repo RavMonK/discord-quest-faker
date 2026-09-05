@@ -36,13 +36,13 @@ Everything is driven from a local control panel at <http://127.0.0.1:5011>, or f
 |---|---|
 | Zero dependencies | Pure Node.js — `npm install` is never needed |
 | Web control panel | Search, Start/Stop, presets, auto-stop, add games from Steam |
-| Placeholder owns a real window | A 5 KB exe compiled with `csc.exe`, showing the game icon and elapsed time |
+| Placeholder owns a real window | A small program compiled on the spot (`csc.exe` / `clang` / `cc`), showing the game and the elapsed time |
 | Three-tier fallback chain | If a tier is unavailable, the next one is used automatically |
 | Presets | Press **★** to save a game into `config.json` for one-click starts |
 | Queue | Line games up with **＋**: each plays for its own time, then the next starts after a random 30-70 s gap |
 | Auto-stop | Stop by itself after N minutes |
 | Games missing from the list | Add them from a Steam app id / SteamDB URL |
-| Cross-platform | Windows (full), macOS / Linux (limited — see [Platform notes](EN-Platform-Notes)) |
+| Cross-platform | Windows (full), macOS / Linux (windowed too, but far fewer games — see [Platform notes](EN-Platform-Notes)) |
 | CLI | Start, search, and refresh without opening a browser |
 
 ## Requirements

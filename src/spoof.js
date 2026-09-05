@@ -25,9 +25,9 @@ const MAX_RESTARTS = 500;
 // covers a one-off death; a third means the tier itself does not work on this machine.
 const MAX_TIER_DEATHS = 3;
 
-// Bumped whenever the C# or Objective-C source below changes, so every cached placeholder is
-// rebuilt once.
-const PLACEHOLDER_BUILD = 3;
+// Bumped whenever the C#, Objective-C or C source below changes, so every cached placeholder
+// is rebuilt once.
+const PLACEHOLDER_BUILD = 4;
 
 // Game icons come from Discord's and Steam's CDN. Anything much larger than this is not one.
 const MAX_ICON_BYTES = 4 * 1024 * 1024;
@@ -122,6 +122,9 @@ class Spoofer {
     // ("Launch Constraint Violation"). The Node copy has no such constraint and survives, but
     // it owns no window - so it is the fallback, not the first choice.
     if (process.platform === 'darwin') return ['compiled', 'node'];
+    // Linux has both: a compiled X11 window (any C compiler, no development packages) and a
+    // copied /bin/sleep for machines with no compiler or no display to put a window on.
+    if (process.platform === 'linux') return ['compiled', 'system', 'node'];
     return ['system', 'node'];
   }
 
@@ -152,12 +155,54 @@ class Spoofer {
     return { binary, sdk: root };
   }
 
-  /** Objective-C string literal contents - the game name is arbitrary text from an API. */
-  static objcString(text) {
+  /**
+   * The Linux equivalent: any C compiler at all. Nothing else is needed - the placeholder
+   * reaches Xlib through dlopen, so there are no X11 headers to install and no -lX11 to link,
+   * which is what keeps this tier available on a plain desktop rather than a build machine.
+   */
+  static linuxCompiler() {
+    const names = [process.env.CC, 'cc', 'gcc', 'clang'].filter(Boolean);
+    const dirs = String(process.env.PATH || '/usr/bin:/bin').split(path.delimiter).filter(Boolean);
+    for (const name of names) {
+      const found = path.isAbsolute(name)
+        ? [name]
+        : dirs.map((dir) => path.join(dir, name));
+      for (const candidate of found) {
+        try {
+          fs.accessSync(candidate, fs.constants.X_OK);
+          return candidate;
+        } catch (err) { /* not here, try the next one */ }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * C string literal contents - the game name is arbitrary text from an API. Serves the
+   * Objective-C and the C source alike; they escape string literals the same way.
+   */
+  static cString(text) {
     return String(text || 'Game')
       .replace(/[\r\n\t]+/g, ' ')
       .replace(/\\/g, '\\\\')
       .replace(/"/g, '\\"');
+  }
+
+  /**
+   * The game's name with the accents folded away and anything still outside ASCII dropped.
+   *
+   * The Linux window draws with a core X font, which is single byte: a name like
+   * "MARVEL Tokon" written with its real diacritic comes out as mojibake. The window's title
+   * goes through _NET_WM_NAME and keeps the real name; only what the program paints is folded.
+   */
+  static asciiLabel(text, fallback) {
+    const folded = String(text || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\x20-\x7e]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return folded || String(fallback || 'Game');
   }
 
   /**
@@ -187,9 +232,9 @@ class Spoofer {
 
   /** Build a windowed placeholder at `target` with whichever compiler this platform ships. */
   compile(target, game) {
-    return process.platform === 'darwin'
-      ? this.compileMac(target, game)
-      : this.compileWindows(target, game.name);
+    if (process.platform === 'darwin') return this.compileMac(target, game);
+    if (process.platform === 'linux') return this.compileLinux(target, game);
+    return this.compileWindows(target, game.name);
   }
 
   /**
@@ -209,11 +254,11 @@ class Spoofer {
     const buildDir = this.runtimeTarget('_build');
     fs.mkdirSync(buildDir, { recursive: true });
 
-    const name = Spoofer.objcString(game.name);
+    const name = Spoofer.cString(game.name);
     if (this.compiledMatches(target, name)) return target;
 
     // Stands in for the icon until it is downloaded, and forever if there is none.
-    const initial = Spoofer.objcString(String(game.name || '').trim().charAt(0).toUpperCase() || '?');
+    const initial = Spoofer.cString(String(game.name || '').trim().charAt(0).toUpperCase() || '?');
     const sourcePath = this.runtimeTarget('_build', Spoofer.signalToken('o', target) + '.m');
     fs.writeFileSync(sourcePath, Spoofer.macSource(name, initial), 'utf8');
 
@@ -684,6 +729,381 @@ class Spoofer {
     return target;
   }
 
+  /**
+   * The Linux twin of the other two: a real X11 window, compiled straight to its final path.
+   *
+   * There is no toolkit to depend on here. The source below opens libX11 with dlopen and looks
+   * every entry point up by name, so the only thing this tier needs is a C compiler - no X11
+   * headers, no development package, nothing to link. What it cannot do is draw the game's
+   * picture: decoding a PNG needs a library, so the window shows the game's initial instead.
+   */
+  compileLinux(target, game) {
+    // A window needs a display to appear on. A headless machine, or a Wayland session without
+    // XWayland, has none - those belong on a windowless tier rather than on a build that fails
+    // every time it is launched.
+    if (!process.env.DISPLAY) throw new Error('no X display (DISPLAY is not set)');
+    const cc = Spoofer.linuxCompiler();
+    if (!cc) throw new Error('no C compiler found (install cc, gcc or clang)');
+
+    const fileName = path.basename(target);
+    const label = Spoofer.asciiLabel(game.name, fileName);
+    const name = Spoofer.cString(game.name);
+    if (this.compiledMatches(target, name)) return target;
+
+    fs.mkdirSync(this.runtimeTarget('_build'), { recursive: true });
+    const sourcePath = this.runtimeTarget('_build', Spoofer.signalToken('c', target) + '.c');
+    // Stands in for the icon this window cannot decode.
+    const initial = Spoofer.cString(label.charAt(0).toUpperCase() || '?');
+    fs.writeFileSync(sourcePath, Spoofer.linuxSource(name, Spoofer.cString(label),
+      Spoofer.cString(fileName), initial), 'utf8');
+
+    // Writing over the file while it runs fails with ETXTBSY; unlinking it first does not, and
+    // the process still running keeps the inode it was started from.
+    try { if (fs.existsSync(target)) fs.unlinkSync(target); } catch (err) { /* cc will tell us */ }
+
+    const build = (args) => spawnSync(cc, args, { timeout: 60000, encoding: 'utf8' });
+    // dlopen lives in libdl on older glibc and in libc itself since 2.34, where some
+    // toolchains reject the flag outright - so a refused -ldl is not a failed build.
+    let result = build(['-O2', '-o', target, sourcePath, '-ldl']);
+    if (result.status !== 0) result = build(['-O2', '-o', target, sourcePath]);
+
+    if (result.status !== 0 || !fs.existsSync(target)) {
+      throw new Error('cc failed: '
+        + String(result.stderr || result.stdout || result.error || '').trim().split('\n')[0]);
+    }
+
+    fs.chmodSync(target, 0o755);
+    this.rememberCompiled(target, name);
+    return target;
+  }
+
+  /**
+   * The C the Linux placeholder is built from.
+   *
+   * Same purpose as the window on the other two platforms: a process that owns a real, mapped,
+   * named window rather than a bare entry in the process table. It reports the game's name and
+   * executable, how long the session has been going and when it stops by itself, and closing
+   * it ends the session. Those values arrive as command line arguments, so one build serves
+   * every session of the same game.
+   */
+  static linuxSource(name, label, fileName, initial) {
+    return [
+      '#include <dlfcn.h>',
+      '#include <poll.h>',
+      '#include <stdio.h>',
+      '#include <stdlib.h>',
+      '#include <string.h>',
+      '#include <time.h>',
+      '#include <unistd.h>',
+      '',
+      'static const char *kName = "' + name + '";',
+      '/* Core X fonts are single byte, so the drawn name is the ASCII-folded one. */',
+      'static const char *kLabel = "' + label + '";',
+      'static const char *kFile = "' + fileName + '";',
+      'static const char *kInitial = "' + initial + '";',
+      '',
+      '/*',
+      ' * Xlib is opened with dlopen and every entry point is looked up by name, so this builds with',
+      ' * nothing but a C compiler: no X11 headers, no -lX11, no development package. libX11.so.6 is',
+      ' * on every machine that runs an X or XWayland session, which is exactly where a window can',
+      ' * appear at all. Only the handful of types below are needed, and they are part of the stable',
+      ' * X11 ABI.',
+      ' */',
+      'typedef struct XDisplayOpaque Display;',
+      'typedef unsigned long XID;',
+      'typedef XID Window;',
+      'typedef XID Font;',
+      'typedef XID Atom;',
+      'typedef XID Colormap;',
+      'typedef void *GC;',
+      '',
+      'typedef struct { unsigned long pixel; unsigned short red, green, blue; char flags, pad; } XColor;',
+      'typedef struct { char *res_name; char *res_class; } XClassHint;',
+      'typedef struct {',
+      '    long flags; int x, y, width, height;',
+      '    int min_width, min_height, max_width, max_height;',
+      '    int width_inc, height_inc;',
+      '    struct { int x, y; } min_aspect, max_aspect;',
+      '    int base_width, base_height, win_gravity;',
+      '} XSizeHints;',
+      'typedef struct {',
+      '    int type; unsigned long serial; int send_event; Display *display;',
+      '    Window window; Atom message_type; int format; long data[5];',
+      '} XClientMessage;',
+      '/* Big enough for any event the server can send us, whichever kind it turns out to be. */',
+      'typedef union { long pad[32]; int type; XClientMessage client; } XEventBuffer;',
+      '',
+      '#define ExposureMask (1L << 15)',
+      '#define StructureNotifyMask (1L << 17)',
+      '#define Expose 12',
+      '#define DestroyNotify 17',
+      '#define ClientMessage 33',
+      '#define XA_CARDINAL 6',
+      '#define PropModeReplace 0',
+      '#define PMinSize (1L << 4)',
+      '#define PMaxSize (1L << 5)',
+      '#define DoRGB 7',
+      '',
+      'static Display *(*XOpenDisplay)(const char *);',
+      'static int (*XDefaultScreen)(Display *);',
+      'static Window (*XRootWindow)(Display *, int);',
+      'static Colormap (*XDefaultColormap)(Display *, int);',
+      'static int (*XAllocColor)(Display *, Colormap, XColor *);',
+      'static unsigned long (*XWhitePixel)(Display *, int);',
+      'static unsigned long (*XBlackPixel)(Display *, int);',
+      'static Window (*XCreateSimpleWindow)(Display *, Window, int, int, unsigned int, unsigned int,',
+      '                                     unsigned int, unsigned long, unsigned long);',
+      'static int (*XStoreName)(Display *, Window, const char *);',
+      'static int (*XSetIconName)(Display *, Window, const char *);',
+      'static int (*XSetClassHint)(Display *, Window, XClassHint *);',
+      'static int (*XSetWMNormalHints)(Display *, Window, XSizeHints *);',
+      'static int (*XSetWMProtocols)(Display *, Window, Atom *, int);',
+      'static Atom (*XInternAtom)(Display *, const char *, int);',
+      'static int (*XChangeProperty)(Display *, Window, Atom, Atom, int, int, const unsigned char *, int);',
+      'static int (*XSelectInput)(Display *, Window, long);',
+      'static int (*XMapWindow)(Display *, Window);',
+      'static int (*XFlush)(Display *);',
+      'static int (*XPending)(Display *);',
+      'static int (*XNextEvent)(Display *, XEventBuffer *);',
+      'static int (*XConnectionNumber)(Display *);',
+      'static GC (*XCreateGC)(Display *, Window, unsigned long, void *);',
+      'static int (*XSetForeground)(Display *, GC, unsigned long);',
+      'static int (*XSetFont)(Display *, GC, Font);',
+      'static int (*XDrawString)(Display *, Window, GC, int, int, const char *, int);',
+      'static int (*XFillRectangle)(Display *, Window, GC, int, int, unsigned int, unsigned int);',
+      'static char **(*XListFonts)(Display *, const char *, int, int *);',
+      'static void (*XFreeFontNames)(char **);',
+      'static Font (*XLoadFont)(Display *, const char *);',
+      'static void *(*XSetErrorHandler)(void *);',
+      '',
+      'static Display *dpy;',
+      'static Window win;',
+      'static Atom closeMessage;',
+      'static GC gcTitle, gcText, gcDim, gcValue, gcBadge, gcInitial, gcBack;',
+      'static double startedAt, durationMinutes;',
+      '',
+      '/* Xlib\'s default error handler exits the process; a stray BadFont must not end the session. */',
+      'static int quiet(Display *display, void *error) { (void)display; (void)error; return 0; }',
+      '',
+      'static unsigned long colour(int screen, int r, int g, int b, unsigned long fallback) {',
+      '    XColor wanted;',
+      '    memset(&wanted, 0, sizeof wanted);',
+      '    wanted.red = (unsigned short)(r * 257);',
+      '    wanted.green = (unsigned short)(g * 257);',
+      '    wanted.blue = (unsigned short)(b * 257);',
+      '    wanted.flags = DoRGB;',
+      '    if (!XAllocColor(dpy, XDefaultColormap(dpy, screen), &wanted)) return fallback;',
+      '    return wanted.pixel;',
+      '}',
+      '',
+      '/*',
+      ' * First font matching any of these patterns, or 0 to keep whatever font the GC was created',
+      ' * with. Nothing here is guaranteed to exist - X has no standard font set - so the patterns run',
+      ' * from the nicest to the ones a bare X server still ships, and asking the server which of them',
+      ' * it has (XListFonts) is what keeps XLoadFont from failing.',
+      ' */',
+      'static Font font(const char **patterns, int count) {',
+      '    for (int i = 0; i < count; i++) {',
+      '        int found = 0;',
+      '        char **names = XListFonts(dpy, patterns[i], 1, &found);',
+      '        if (!names) continue;',
+      '        Font id = found > 0 ? XLoadFont(dpy, names[0]) : 0;',
+      '        XFreeFontNames(names);',
+      '        if (id) return id;',
+      '    }',
+      '    return 0;',
+      '}',
+      '',
+      'static GC pen(unsigned long ink, Font face) {',
+      '    GC gc = XCreateGC(dpy, win, 0, NULL);',
+      '    XSetForeground(dpy, gc, ink);',
+      '    if (face) XSetFont(dpy, gc, face);',
+      '    return gc;',
+      '}',
+      '',
+      'static const char *argValue(int argc, char **argv, const char *flag) {',
+      '    for (int i = 1; i + 1 < argc; i++) {',
+      '        if (strcmp(argv[i], flag) == 0) return argv[i + 1];',
+      '    }',
+      '    return NULL;',
+      '}',
+      '',
+      'static double now(void) {',
+      '    struct timespec tick;',
+      '    clock_gettime(CLOCK_REALTIME, &tick);',
+      '    return (double)tick.tv_sec + tick.tv_nsec / 1e9;',
+      '}',
+      '',
+      'static void clockText(double seconds, char *out, size_t size) {',
+      '    if (seconds < 0 || seconds != seconds) seconds = 0;',
+      '    long total = (long)seconds;',
+      '    snprintf(out, size, "%02ld:%02ld:%02ld", total / 3600, (total / 60) % 60, total % 60);',
+      '}',
+      '',
+      'static void draw(const char *text, GC gc, int x, int y) {',
+      '    XDrawString(dpy, win, gc, x, y, text, (int)strlen(text));',
+      '}',
+      '',
+      '/* The two lines that change every second, painted over their own background. */',
+      'static void drawValues(void) {',
+      '    char text[64];',
+      '    double elapsed = now() - startedAt;',
+      '',
+      '    XFillRectangle(dpy, win, gcBack, 196, 84, 268, 40);',
+      '    clockText(elapsed, text, sizeof text);',
+      '    draw(text, gcValue, 196, 98);',
+      '',
+      '    if (durationMinutes > 0) {',
+      '        double left = durationMinutes * 60.0 - elapsed;',
+      '        char span[32];',
+      '        clockText(left, span, sizeof span);',
+      '        if (left > 0) snprintf(text, sizeof text, "%s left of %g min", span, durationMinutes);',
+      '        else snprintf(text, sizeof text, "stopping now");',
+      '    } else {',
+      '        snprintf(text, sizeof text, "off");',
+      '    }',
+      '    draw(text, gcValue, 196, 118);',
+      '}',
+      '',
+      'static void drawAll(void) {',
+      '    XFillRectangle(dpy, win, gcBadge, 22, 26, 76, 76);',
+      '    draw(kInitial, gcInitial, 50, 76);',
+      '    draw(kLabel, gcTitle, 116, 48);',
+      '    draw(kFile, gcDim, 116, 70);',
+      '    draw("Running", gcText, 116, 98);',
+      '    draw("Auto-stop", gcText, 116, 118);',
+      '    draw("Discord Quest Faker placeholder - keep this window open.", gcDim, 22, 146);',
+      '    drawValues();',
+      '}',
+      '',
+      'static void *lib;',
+      '',
+      'static int missing(const char *symbol) {',
+      '    fprintf(stderr, "libX11 has no %s\\n", symbol);',
+      '    return 3;',
+      '}',
+      '',
+      '#define BIND(fn) do { *(void **)(&fn) = dlsym(lib, #fn); if (!fn) return missing(#fn); } while (0)',
+      '',
+      'static int connect(void) {',
+      '    lib = dlopen("libX11.so.6", RTLD_LAZY);',
+      '    if (!lib) lib = dlopen("libX11.so", RTLD_LAZY);',
+      '    if (!lib) {',
+      '        fprintf(stderr, "libX11 not found\\n");',
+      '        return 3;',
+      '    }',
+      '',
+      '    BIND(XOpenDisplay); BIND(XDefaultScreen); BIND(XRootWindow); BIND(XDefaultColormap);',
+      '    BIND(XAllocColor); BIND(XWhitePixel); BIND(XBlackPixel); BIND(XCreateSimpleWindow);',
+      '    BIND(XStoreName); BIND(XSetIconName); BIND(XSetClassHint); BIND(XSetWMNormalHints);',
+      '    BIND(XSetWMProtocols); BIND(XInternAtom); BIND(XChangeProperty); BIND(XSelectInput);',
+      '    BIND(XMapWindow); BIND(XFlush); BIND(XPending); BIND(XNextEvent); BIND(XConnectionNumber);',
+      '    BIND(XCreateGC); BIND(XSetForeground); BIND(XSetFont); BIND(XDrawString);',
+      '    BIND(XFillRectangle); BIND(XListFonts); BIND(XFreeFontNames); BIND(XLoadFont);',
+      '    BIND(XSetErrorHandler);',
+      '    return 0;',
+      '}',
+      '',
+      'static void build(void) {',
+      '    static const char *titleFonts[] = { "-*-dejavu sans-bold-r-*--17-*", "-*-helvetica-bold-r-*--17-*",',
+      '                                        "10x20", "9x15bold", "-misc-fixed-bold-r-normal--15-*" };',
+      '    static const char *badgeFonts[] = { "-*-dejavu sans-bold-r-*--34-*", "-*-helvetica-bold-r-*--34-*",',
+      '                                        "12x24", "10x20" };',
+      '    static const char *valueFonts[] = { "9x15", "-misc-fixed-medium-r-normal--13-*", "fixed" };',
+      '',
+      '    int screen = XDefaultScreen(dpy);',
+      '    unsigned long white = XWhitePixel(dpy, screen), black = XBlackPixel(dpy, screen);',
+      '    unsigned long back = colour(screen, 35, 36, 40, black);',
+      '    win = XCreateSimpleWindow(dpy, XRootWindow(dpy, screen), 0, 0, 480, 160, 0, back, back);',
+      '',
+      '    Font title = font(titleFonts, 5), badge = font(badgeFonts, 4), value = font(valueFonts, 3);',
+      '    gcTitle = pen(colour(screen, 255, 255, 255, white), title);',
+      '    gcText = pen(colour(screen, 226, 229, 234, white), 0);',
+      '    gcDim = pen(colour(screen, 132, 137, 145, white), 0);',
+      '    gcValue = pen(colour(screen, 154, 160, 168, white), value);',
+      '    gcBadge = pen(colour(screen, 45, 47, 52, black), 0);',
+      '    gcInitial = pen(colour(screen, 118, 123, 132, white), badge);',
+      '    gcBack = pen(back, 0);',
+      '',
+      '    /* Named and classed like an application window, because that is what this pretends to be. */',
+      '    XClassHint identity;',
+      '    identity.res_name = (char *)kFile;',
+      '    identity.res_class = (char *)kLabel;',
+      '    XStoreName(dpy, win, kName);',
+      '    XSetIconName(dpy, win, kName);',
+      '    XSetClassHint(dpy, win, &identity);',
+      '    /* WM_NAME above is Latin-1 by protocol; this is the title a modern window manager reads. */',
+      '    XChangeProperty(dpy, win, XInternAtom(dpy, "_NET_WM_NAME", 0),',
+      '                    XInternAtom(dpy, "UTF8_STRING", 0), 8, PropModeReplace,',
+      '                    (const unsigned char *)kName, (int)strlen(kName));',
+      '',
+      '    long pid = (long)getpid();',
+      '    XChangeProperty(dpy, win, XInternAtom(dpy, "_NET_WM_PID", 0), XA_CARDINAL, 32,',
+      '                    PropModeReplace, (const unsigned char *)&pid, 1);',
+      '',
+      '    /* Everything is drawn at fixed coordinates, so let no window manager resize it. */',
+      '    XSizeHints size;',
+      '    memset(&size, 0, sizeof size);',
+      '    size.flags = PMinSize | PMaxSize;',
+      '    size.min_width = size.max_width = 480;',
+      '    size.min_height = size.max_height = 160;',
+      '    XSetWMNormalHints(dpy, win, &size);',
+      '',
+      '    /* Without this the window manager\'s close button kills the client instead of asking it. */',
+      '    closeMessage = XInternAtom(dpy, "WM_DELETE_WINDOW", 0);',
+      '    XSetWMProtocols(dpy, win, &closeMessage, 1);',
+      '',
+      '    XSelectInput(dpy, win, ExposureMask | StructureNotifyMask);',
+      '    XMapWindow(dpy, win);',
+      '}',
+      '',
+      'int main(int argc, char **argv) {',
+      '    const char *started = argValue(argc, argv, "--started");',
+      '    const char *duration = argValue(argc, argv, "--duration");',
+      '    int failure = connect();',
+      '    if (failure) return failure;',
+      '',
+      '    startedAt = started ? atof(started) / 1000.0 : 0;',
+      '    if (startedAt <= 0) startedAt = now();',
+      '    durationMinutes = duration ? atof(duration) : 0;',
+      '',
+      '    XSetErrorHandler((void *)quiet);',
+      '    dpy = XOpenDisplay(NULL);',
+      '    if (!dpy) {',
+      '        fprintf(stderr, "no X display to open\\n");',
+      '        return 3;',
+      '    }',
+      '',
+      '    build();',
+      '    drawAll();',
+      '    XFlush(dpy);',
+      '',
+      '    /* Wake for an event, and once a second regardless so the clock keeps moving. */',
+      '    int fd = XConnectionNumber(dpy);',
+      '    for (;;) {',
+      '        struct pollfd waiting;',
+      '        waiting.fd = fd;',
+      '        waiting.events = POLLIN;',
+      '        waiting.revents = 0;',
+      '        poll(&waiting, 1, 1000);',
+      '',
+      '        while (XPending(dpy) > 0) {',
+      '            XEventBuffer event;',
+      '            memset(&event, 0, sizeof event);',
+      '            XNextEvent(dpy, &event);',
+      '            /* Closing the window is how someone stops the session from the window itself. */',
+      '            if (event.type == DestroyNotify) return 0;',
+      '            if (event.type == ClientMessage && (Atom)event.client.data[0] == closeMessage) return 0;',
+      '            if (event.type == Expose) drawAll();',
+      '        }',
+      '        drawValues();',
+      '        XFlush(dpy);',
+      '    }',
+      '}',
+      ''
+    ].join('\n');
+  }
+
   /** Where the game's picture comes from - the same sources the control panel draws. */
   static iconUrl(game) {
     const url = game.iconUrl
@@ -926,11 +1346,14 @@ class Spoofer {
   provision(target, tier, game, exe, session) {
     if (tier === 'compiled') {
       this.compile(target, game);
+      // The Linux window draws no picture - decoding one needs a library this has none of - so
+      // it does not ask for one either: starting a game must not fetch bytes nobody looks at.
+      const icon = process.platform === 'linux' ? null : this.ensureIcon(game);
       // What the window shows about this particular run travels as arguments, so the compiled
       // file stays the same across sessions and does not have to be rebuilt for each one.
       return {
         args: [
-          '--icon', this.ensureIcon(game) || '-',
+          '--icon', icon || '-',
           '--started', String(session.startedAt),
           '--duration', String(session.durationMinutes)
         ],
@@ -1089,6 +1512,10 @@ class Spoofer {
             console.warn('[spoof] ' + label + ': the ' + tiers[i] + ' placeholder has no window, '
               + 'so Discord may not detect it (run xcode-select --install so clang and the Cocoa '
               + 'SDK are available)');
+          } else if (process.platform === 'linux') {
+            console.warn('[spoof] ' + label + ': the ' + tiers[i] + ' placeholder has no window, '
+              + 'so all you get is a process (the windowed one needs a C compiler - cc, gcc or '
+              + 'clang - and an X or XWayland session, i.e. DISPLAY set)');
           } else {
             this.warnOnce('[spoof] the ' + process.platform + ' placeholder owns no window, and '
               + 'there is no windowed tier for this platform. Whether Discord detects a windowless '

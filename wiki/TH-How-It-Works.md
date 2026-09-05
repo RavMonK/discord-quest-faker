@@ -29,6 +29,7 @@ Discord desktop ไล่ดู **path ของโปรเซสที่ก�
 |---|---|---|---|---|---|---|
 | 1 | `compiled` | Windows | คอมไพล์ exe จริงด้วย `csc.exe` | 5 KB | ~20 MB | ✅ มี |
 | 1 | `compiled` | macOS | คอมไพล์แอป Cocoa จริงด้วย `clang` | ~56 KB | ~25 MB | ✅ มี |
+| 1 | `compiled` | Linux | คอมไพล์โปรแกรม X11 จริงด้วย `cc` | ~72 KB | ~2 MB | ✅ มี |
 | 2 | `system` | Windows | ก๊อป `System32\waitfor.exe` | 64 KB | ~6 MB | ❌ ไม่มี |
 | 2 | `system` | Linux เท่านั้น | ก๊อป `/bin/sleep` | ~150 KB | ~2 MB | ❌ ไม่มี |
 | 3 | `node` | ทุกแพลตฟอร์ม | ก๊อป `node` ตัวที่กำลังรัน + `keepalive.js` | ~90 MB | ~35 MB | ❌ ไม่มี |
@@ -37,6 +38,11 @@ Discord desktop ไล่ดู **path ของโปรเซสที่ก�
 (launch constraint) จึงเหลือ `compiled` → `node` ส่วนชั้น `compiled` ของ macOS ต้องมี Xcode
 Command Line Tools (`clang` + Cocoa SDK) ถ้าไม่มีจะตกไปใช้ `node` ที่ไม่มีหน้าต่าง รายละเอียดอยู่ใน
 [ความต่างของแต่ละระบบ](TH-Platform-Notes)
+
+**หน้าต่างบน Linux ต้องการแค่ compiler** — placeholder ฝั่ง X11 เรียก Xlib ผ่าน `dlopen` จึงไม่ต้อง
+ติดตั้ง header ของ X11 และไม่ต้อง link `-lX11` เลย ใช้ `cc`, `gcc`, `clang` (หรือ `$CC`) ตัวไหน
+ก็คอมไพล์ได้ ถ้าเครื่องไม่มี compiler หรือไม่มี `DISPLAY` ให้เปิดหน้าต่าง จะถอยไปใช้ชั้น `system`
+(ก๊อป `/bin/sleep`) พร้อมบอกว่าขาดอะไร
 
 การเลื่อนชั้นเกิดขึ้นสองกรณี: ชั้นที่ throw error หรือโปรเซสตายภายใน 2 วินาที = ใช้ไม่ได้ เลื่อนลงทันที
 และชั้นที่โปรเซสถูกฆ่าแบบไม่ปกติครบ 3 ครั้ง = เครื่องนี้ใช้ชั้นนี้ไม่ได้ ก็เลื่อนลงเหมือนกัน

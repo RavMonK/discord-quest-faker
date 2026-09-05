@@ -10,7 +10,7 @@
 |---|---|---|---|
 | **Windows** | 10,447 | ✅ yes (`compiled` tier) | Fully working, tested |
 | **macOS** | **62** | ✅ yes (`compiled` tier) | Needs the Xcode CLT · answers every signal Discord can read; whether it credits a quest is still unconfirmed |
-| **Linux** | 8 | ❌ no (`/bin/sleep`) | Very limited, untested on real hardware |
+| **Linux** | 8 | ✅ yes (`compiled` tier) | Needs any C compiler and an X/XWayland session · the window is verified on X11; whether Discord credits a quest there is still unconfirmed |
 
 The tool only lists games that have an executable **for the OS it is running on**. A Mac
 therefore sees just those 62 games, and a Windows-only game (MARVEL Tōkon, say) never appears.
@@ -43,6 +43,10 @@ Two big differences from Windows:
 2. **The macOS `compiled` tier needs the Xcode Command Line Tools** — `clang` plus the Cocoa
    SDK. Without them it falls through to the `node` tier, which **owns no window**, and says so
    along with the `xcode-select --install` that fixes it.
+3. **The Linux `compiled` tier needs a C compiler and a display** — any of `cc`, `gcc` or
+   `clang` (or whatever `$CC` names), and `DISPLAY` pointing at an X or XWayland session.
+   Without either it falls through to `system`, which **owns no window**, and the warning names
+   the half that is missing.
 
 macOS `.app` entries get a minimal app bundle (an `Info.plist` plus the binary in
 `Contents/MacOS/`), so the process path ends with `Foo.app/Contents/MacOS/Foo` just like the real
@@ -86,6 +90,38 @@ Two more rules macOS imposes, neither of which may be reverted:
   (`EPERM`, even after unlinking the file first). Deleting the whole bundle is still permitted,
   which is the escape hatch when the plist genuinely has to change.
 
+### The window on Linux
+
+`compileLinux()` compiles a ~72 KB X11 program with whatever C compiler is installed, straight
+to the fake path. It maps one fixed 480x160 window that shows the game's name, the executable
+being impersonated, the elapsed clock and when the session stops by itself. Closing the window
+ends the session, exactly as on Windows and macOS.
+
+Two things make this tier cheap enough to be the default:
+
+- **Xlib is opened with `dlopen`, not linked.** Every entry point is looked up by name, so the
+  build needs no X11 headers, no development package and no `-lX11` — only a compiler. Any
+  machine running an X or XWayland session already has `libX11.so.6`.
+- **Nothing is compiled in but the text.** The name, the label and the executable name become
+  string constants; the clock and the auto-stop countdown arrive as command line arguments, so
+  one build serves every session of that game and stays cached.
+
+What it cannot do is show the game's picture: decoding a PNG needs a library, and this has none,
+so the badge shows the game's initial and no icon is downloaded on Linux at all. The drawn text
+is also ASCII-folded (`MARVEL Tōkon` → `MARVEL Tokon`), because a core X font is single byte —
+the window's real title goes through `_NET_WM_NAME` as UTF-8 and keeps the accents.
+
+The window also carries what a real application's window carries: `WM_CLASS` (the executable
+name and the game's), `_NET_WM_PID` (its own pid) and `WM_DELETE_WINDOW`, so a window manager
+asks it to close rather than killing it.
+
+**What is verified and what is not.** On X11 the window is really there — mapped, 480x160, named
+and classed after the game, with `_NET_WM_PID` matching the placeholder's pid — and
+`/proc/<pid>/exe` is the fake game path. Whether Discord's Linux client then credits a quest is
+**still unconfirmed**, exactly as on macOS. Discord's Linux detection reads `/proc`, which the
+windowless tiers also satisfy; the window is there because every platform's detection has wanted
+one so far, and because a session you cannot see is a session you forget to stop.
+
 ## Why Windows games are not offered on macOS
 
 Technically it works — file extensions mean nothing on Unix, so you can create and run a file
@@ -101,7 +137,7 @@ named `redsteam.exe` on a Mac. It **was built once and then deliberately removed
 
 | Tier | Windows | macOS / Linux |
 |---|---|---|
-| 1 `compiled` | `csc.exe` → a 5 KB windowed exe | macOS: `clang` + Cocoa → a ~56 KB windowed app · Linux: not available |
+| 1 `compiled` | `csc.exe` → a 5 KB windowed exe | macOS: `clang` + Cocoa → a ~56 KB windowed app · Linux: `cc`/`gcc`/`clang` + `dlopen`ed Xlib → a ~72 KB windowed X11 program |
 | 2 `system` | copy of `System32\waitfor.exe` + a unique signal token | Linux: copy of `/bin/sleep 999999` · macOS: **not available** |
 | 3 `node` | copy of `node.exe` + `keepalive.js` | copy of `node` + `keepalive.js` (`chmod 755`) |
 | Stopping | `taskkill /PID <pid> /T /F` | `SIGTERM`, then `SIGKILL` after 3 s |
@@ -144,6 +180,27 @@ Recording permission; that is expected and does not mean the window is missing.
 When a placeholder dies on its own, macOS files the reason in
 `~/Library/Logs/DiagnosticReports/<name>-*.ips` — read the `exception` and `termination` keys out
 of the JSON body. To clean up leftovers:
+
+```bash
+pkill -f "data/runtime"
+```
+
+## Verification commands (Linux)
+
+Is the placeholder really running, and from the fake path?
+
+```bash
+for d in /proc/[0-9]*; do case "$(readlink $d/exe)" in *data/runtime*) echo "${d#/proc/} -> $(readlink $d/exe)";; esac; done
+```
+
+Does it own a window? (`x11-utils` provides both commands)
+
+```bash
+xwininfo -root -tree | grep -i <game>       # must list it at 480x160 with the game's name
+xprop -id <window id> _NET_WM_PID WM_CLASS  # the pid must be the placeholder's
+```
+
+Clean up leftovers — a crashed server can leave placeholders behind:
 
 ```bash
 pkill -f "data/runtime"

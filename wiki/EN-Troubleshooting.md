@@ -46,6 +46,9 @@ Work through this in order:
 
      `0` means no window, so a fallback tier is in use — look for the
      `the ... placeholder has no window` warning in the terminal and install the .NET Framework.
+     On Linux the same question is `xwininfo -root -tree | grep -i <game>`; nothing listed means
+     the windowless tier is in use, and the warning names what is missing (a C compiler, or a
+     `DISPLAY` to map the window on).
 
 ## Reading the terminal log
 
