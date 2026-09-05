@@ -101,8 +101,8 @@ answer `y` when it offers to kill the process holding the port (`taskkill /T` ta
 with it).
 
 **Can I open the panel from another machine on my network?**
-`host` is configurable, but the `127.0.0.1` default is deliberate: the API has no authentication,
-so anyone who can reach it can start and stop processes.
+No. The panel now accepts loopback connections only. Use `127.0.0.1`, `localhost`, or `::1`
+for `host`. API scripts must obtain a session token and send it as `X-DQF-Token`; see [HTTP API](EN-HTTP-API).
 
 ## Read next
 

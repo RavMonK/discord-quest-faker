@@ -207,6 +207,9 @@ function normalizePresets(config, store) {
 }
 
 async function main() {
+  if (![22, 24, 26].includes(Number(process.versions.node.split('.')[0]))) {
+    throw new Error('Use an up-to-date Node.js 22, 24, or 26 release (Node.js 24 LTS recommended)');
+  }
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
@@ -341,7 +344,7 @@ async function main() {
 
   server.on('error', (err) => console.error('[server] ' + err.message));
 
-  const url = 'http://' + config.host + ':' + config.port;
+  const url = 'http://' + (config.host === '::1' ? '[::1]' : config.host) + ':' + config.port;
   console.log('');
   console.log('  Discord Quest Faker');
   console.log('  control panel : ' + url);

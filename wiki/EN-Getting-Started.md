@@ -8,7 +8,7 @@
 
 | You need | Notes |
 |---|---|
-| **Node.js 18+** | From <https://nodejs.org> (macOS: `brew install node`) |
+| **Node.js 22/24/26 (24 LTS recommended)** | From <https://nodejs.org> (macOS: `brew install node`) |
 | **Desktop Discord client** | Must stay open while a placeholder runs — the web client does not detect processes at all |
 | **.NET Framework** (Windows) | Provides `csc.exe`. Present on most Windows installs; without it the tool falls back to tiers that own **no window**, which Discord may not detect |
 

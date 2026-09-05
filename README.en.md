@@ -39,7 +39,7 @@ Full version: [English](https://github.com/RavMonK/discord-quest-faker/wiki/EN-D
 
 ## Quick start
 
-You need **Node.js 18+** and the **desktop Discord client** running (the web version cannot
+You need **Node.js 22/24/26 (24 LTS recommended)** and the **desktop Discord client** running (the web version cannot
 detect games).
 
 ```bash
