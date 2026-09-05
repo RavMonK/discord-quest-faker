@@ -25,6 +25,7 @@ node src/index.js --help
 | `--exe all\|<name>\|<n>` | เลือกว่าจะรัน executable ตัวไหน (ไม่ใส่ = ตัวแรก) |
 | `--duration <minutes>` | หยุดอัตโนมัติหลังกี่นาที (ใช้กับ `--start`) |
 | `--presets` | รันทุก preset ใน `config.json` ทันทีที่เปิดโปรแกรม |
+| `--queue` | เริ่มคิวใน `config.json` ทันทีที่เปิดโปรแกรม — เล่นทีละเกม เว้นระยะแบบสุ่ม |
 | `--help` | แสดงวิธีใช้ |
 
 รับได้ทั้งรูปแบบ `--port 8080` และ `--port=8080`
@@ -43,6 +44,7 @@ node src/index.js --start "Overwatch" --duration 60          # หยุดเ�
 node src/index.js --refresh                  # อัปเดต data/games.json อย่างเดียวแล้วออก
 node src/index.js --headless --port 8080     # ไม่เปิดเบราว์เซอร์ / เปลี่ยนพอร์ต
 node src/index.js --presets                  # รันทุก preset ทันทีที่เปิด
+node src/index.js --queue                    # เล่นคิวที่บันทึกไว้ ทีละเกมต่อกันไป
 ```
 
 npm script ที่มีให้:

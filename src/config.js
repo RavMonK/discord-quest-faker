@@ -28,6 +28,13 @@ const DEFAULTS = {
   // each item: { "id": "<application id>", "name": "<label>", "executable": "all", "durationMinutes": 0 }
   presets: [],
 
+  // games played one after another, each stopping when its own timer runs out.
+  // each item: { "id": "<application id>", "name": "<label>", "executable": "<exe>", "durationMinutes": 15 }
+  queue: [],
+  // the gap before the next game starts, drawn fresh for every gap so the run has no rhythm
+  queueDelayMinSeconds: 30,
+  queueDelayMaxSeconds: 70,
+
   // start every preset automatically when the program launches
   autoStartPresets: false
 };
@@ -92,7 +99,8 @@ function load() {
 }
 
 /** Only settings the UI can change are written back; everything else keeps its on-disk value. */
-const EDITABLE_KEYS = ['presets', 'autoStartPresets', 'defaultDurationMinutes', 'maxConcurrent'];
+const EDITABLE_KEYS = ['presets', 'queue', 'queueDelayMinSeconds', 'queueDelayMaxSeconds',
+  'autoStartPresets', 'defaultDurationMinutes', 'maxConcurrent'];
 
 function save(config) {
   if (config.readable === false) {

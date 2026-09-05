@@ -26,6 +26,7 @@ node src/index.js --help
 | `--exe all\|<name>\|<n>` | Which executable(s) to run (default: the first one) |
 | `--duration <minutes>` | Stop automatically after N minutes (with `--start`) |
 | `--presets` | Start every preset from `config.json` on launch |
+| `--queue` | Start the queue from `config.json` on launch — one game at a time, a random gap between each |
 | `--help` | Show usage |
 
 Both `--port 8080` and `--port=8080` are accepted.
@@ -44,6 +45,7 @@ node src/index.js --start "Overwatch" --duration 60          # stop by itself af
 node src/index.js --refresh                  # rewrite data/games.json, then exit
 node src/index.js --headless --port 8080     # no browser / different port
 node src/index.js --presets                  # start every preset on launch
+node src/index.js --queue                    # play the saved queue, one game after another
 ```
 
 The npm scripts that exist:

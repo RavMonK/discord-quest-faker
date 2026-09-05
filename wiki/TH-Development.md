@@ -31,12 +31,14 @@ node --check src/spoof.js         # เช็ค syntax ไฟล์เดีย
 | `tests/games.test.js` | `normalize()`, `fold()`, `GameStore` (สร้างด้วย config ที่ชี้ไป temp dir **ไม่ใช่ `config.json` จริง**) |
 | `tests/spoof.test.js` | `materialize()`, `safeName()`, `signalToken()`, `candidates()`/`select()` และ guard แบบ synchronous ของ `startOne()` (รันอยู่แล้ว, `maxConcurrent`) |
 | `tests/steam.test.js` | `parseAppId`, `normalizeExecutable`, `executablesInArguments`, `osKeysFor` |
+| `tests/queue.test.js` | `randomBetween`/`clampSeconds`, การจัดการลิสต์ และวงจรเลื่อนคิวทั้งวงจร โดยใช้ spoofer จำลอง (**สร้างพร้อม `save` ของตัวเอง** จึงไม่แตะ `config.json` จริง) |
 
 ## ที่จงใจไม่ทดสอบ (และเหตุผล)
 
 | ส่วน | เหตุผล |
 |---|---|
 | `config.js` → `load()` / `save()` | ทั้งคู่ hardcode path ของ `config.json` จริงใต้รากโปรเจกต์ ไม่มีทางชี้ไป temp file ได้ ทดสอบก็เสี่ยงทับ config จริงของผู้ใช้ |
+| เวลาจริงของช่องว่างในคิว | เทสต์รันด้วยช่วง `0` วินาที ส่วนที่ว่ารอ 30-70 วิจริงไหม เป็นหน้าที่ของ `randomBetween` ซึ่งทดสอบตรง ๆ อยู่แล้ว |
 | อะไรที่ spawn placeholder จริง หรือเรียก `csc.exe` | ขึ้นกับ OS และสภาพเครื่อง — เป็นหน้าที่ของการตรวจด้วยมือด้านล่าง |
 | `src/public/` (ฝั่งเว็บ) | เป็น browser script ที่ไม่ export อะไร และไม่มี DOM ในโปรเซสทดสอบ จะจำลองต้องเพิ่ม dependency อย่าง jsdom ซึ่งผิดกฎ zero-deps |
 

@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const state = {
   presets: [], running: [], os: '', results: [],
+  queue: { running: false, items: [], delay: { min: 30, max: 70 }, nextStartAt: null, nextUid: null },
   // the two panels expand independently, so one set each
   expanded: new Set(), expandedPresets: new Set()
 };
@@ -150,6 +151,7 @@ function currentDuration() {
 
 function refreshAll() {
   renderRunning();
+  renderQueue();
   renderPresets();
   renderResults();
 }
@@ -190,6 +192,80 @@ async function stopGame(body) {
   } catch (err) {
     toast(err.message, 'error');
   }
+}
+
+/* ---------------- the queue ---------------- */
+
+/**
+ * One game at a time, each stopping when its own timer runs out - so an entry without an
+ * auto-stop time would hold the queue there until someone presses Stop or Skip. The duration
+ * box at the top of the Games panel is what a new entry starts with.
+ */
+async function queueAdd(game, executable, durationMinutes) {
+  const minutes = durationMinutes === undefined ? currentDuration() : durationMinutes;
+  try {
+    const data = await api('/api/queue', {
+      method: 'POST',
+      body: JSON.stringify({ id: game.id, executable, durationMinutes: minutes })
+    });
+    state.queue = data.queue;
+    refreshAll();
+    toast(minutes > 0
+      ? 'Queued ' + game.name + ' for ' + minutes + ' min'
+      : 'Queued ' + game.name + ' - give it a time so the queue can move on by itself',
+    minutes > 0 ? 'ok' : 'error');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+/**
+ * The ＋ that puts a game into the queue. Every panel builds it through this, so the button
+ * looks the same and sits in the same place wherever a game is listed - it used to be a bare
+ * glyph on game rows, a full-size ghost button on the executable sub-rows, and missing
+ * altogether from presets.
+ * @param durationMinutes what the entry should play for; undefined = the duration box
+ */
+function queueAddButton(game, executable, durationMinutes, title) {
+  const btn = document.createElement('button');
+  btn.className = 'queue-add';
+  btn.textContent = '\uff0b';
+  btn.title = title || 'Add to the queue (plays for the time in the box above, then the next one starts)';
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    Promise.resolve(queueAdd(game, executable, durationMinutes)).finally(() => { btn.disabled = false; });
+  });
+  return btn;
+}
+
+/** Every queue endpoint answers with the whole queue, so one helper covers all of them. */
+async function queueCall(path, options) {
+  try {
+    const data = await api(path, options);
+    if (data.queue) state.queue = data.queue;
+    if (data.running) state.running = data.running;
+    refreshAll();
+    return data;
+  } catch (err) {
+    toast(err.message, 'error');
+    return null;
+  }
+}
+
+const queueRemove = (uid) => queueCall('/api/queue', { method: 'DELETE', body: JSON.stringify({ uid }) });
+const queueMove = (uid, direction) => queueCall('/api/queue/move', { method: 'POST', body: JSON.stringify({ uid, direction }) });
+const queueSetDuration = (uid, durationMinutes) =>
+  queueCall('/api/queue', { method: 'PATCH', body: JSON.stringify({ uid, durationMinutes }) });
+
+function queueSaveDelay() {
+  return queueCall('/api/queue/settings', {
+    method: 'POST',
+    body: JSON.stringify({
+      minSeconds: Number($('queueDelayMin').value),
+      maxSeconds: Number($('queueDelayMax').value)
+    })
+  });
 }
 
 function showSteamNote(text, forceInput) {
@@ -315,6 +391,132 @@ function renderRunning() {
   });
 }
 
+/** Seconds until the next entry starts, or null when nothing is waiting on the clock. */
+function queueCountdown() {
+  if (!state.queue.running || !state.queue.nextStartAt) return null;
+  return Math.max(0, Math.round((state.queue.nextStartAt - Date.now()) / 1000));
+}
+
+/**
+ * The one line above the list. It is the only place that says what the queue is doing right
+ * now, so it has to cover all three states: idle, playing something, waiting out a gap.
+ */
+function renderQueueStatus() {
+  const el = $('queueStatus');
+  const queue = state.queue;
+  const current = queue.items.find((i) => i.uid === queue.currentUid);
+  const waiting = queue.items.find((i) => i.uid === queue.nextUid);
+  const seconds = queueCountdown();
+  const range = queue.delay.min + '-' + queue.delay.max + ' s';
+
+  if (!queue.running) {
+    el.hidden = queue.items.length === 0;
+    const pending = queue.items.filter((i) => i.status === 'pending').length;
+    el.textContent = queue.items.length === 0 ? ''
+      : 'Idle - ' + queue.items.length + ' entr' + (queue.items.length === 1 ? 'y' : 'ies')
+        + (pending < queue.items.length ? ', ' + pending + ' still pending' : '')
+        + ' - gap ' + range;
+    return;
+  }
+
+  el.hidden = false;
+  if (seconds !== null) {
+    el.textContent = 'Next up: ' + (waiting ? waiting.name : 'the next entry') + ' in ' + seconds
+      + ' s (drawn from ' + range + ')';
+  } else if (current) {
+    el.textContent = 'Playing ' + current.name + (current.effectiveDurationMinutes > 0
+      ? ' - stops after ' + current.effectiveDurationMinutes + ' min, then a ' + range + ' gap'
+      : ' - no auto-stop time, so the queue waits here (press Skip to move on)');
+  } else {
+    el.textContent = 'Starting the next entry...';
+  }
+}
+
+const QUEUE_STATUS_LABEL = {
+  pending: 'waiting', running: 'playing', done: 'done',
+  failed: 'failed', skipped: 'skipped', stopped: 'stopped'
+};
+
+function renderQueue() {
+  const list = $('queueList');
+  const queue = state.queue;
+  list.textContent = '';
+  $('queueCount').textContent = queue.items.length;
+
+  const startBtn = $('queueStartBtn');
+  startBtn.textContent = queue.running ? 'Stop queue' : 'Start queue';
+  startBtn.className = 'btn small ' + (queue.running ? 'danger' : 'primary');
+  startBtn.disabled = queue.items.length === 0;
+  $('queueSkipBtn').hidden = !queue.running;
+  $('queueClearBtn').hidden = queue.items.length === 0;
+  renderQueueStatus();
+
+  if (queue.items.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Queue is empty - press the + on a game to line it up. Each entry plays for its '
+      + 'own auto-stop time, then the next one starts after a random gap.';
+    list.appendChild(p);
+    return;
+  }
+
+  queue.items.forEach((item, index) => {
+    const el = document.createElement('div');
+    el.className = 'queue-row status-' + item.status
+      + (item.uid === queue.currentUid ? ' live' : '')
+      + (queue.running && item.uid === queue.nextUid ? ' next' : '');
+
+    const position = document.createElement('span');
+    position.className = 'queue-pos';
+    position.textContent = index + 1;
+    el.append(position, iconEl(item));
+
+    const info = document.createElement('div');
+    info.className = 'info';
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = item.name;
+    const sub = document.createElement('div');
+    sub.className = 'exe';
+    sub.textContent = (item.missing ? 'id ' + item.id + ' is not in the current game list' : item.executable)
+      + '  \u00b7  ' + (QUEUE_STATUS_LABEL[item.status] || item.status)
+      + (item.status === 'failed' && item.reason ? ' (' + item.reason + ')' : '');
+    info.append(name, sub);
+    el.appendChild(info);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    // the per-entry auto-stop time - this is what decides when the queue moves on
+    const minutes = document.createElement('input');
+    minutes.type = 'number';
+    minutes.min = '0';
+    minutes.step = '5';
+    minutes.className = 'queue-minutes';
+    minutes.value = String(item.durationMinutes || 0);
+    minutes.title = item.durationMinutes > 0
+      ? 'Plays for ' + item.durationMinutes + ' minutes, then the next entry starts'
+      : 'No auto-stop time - the queue will wait on this entry';
+    minutes.addEventListener('change', () => queueSetDuration(item.uid, Number(minutes.value)));
+    const unit = document.createElement('span');
+    unit.className = 'queue-unit';
+    unit.textContent = 'min';
+
+    const up = button('\u2191', 'ghost', () => queueMove(item.uid, 'up'));
+    up.title = 'Move up';
+    up.disabled = index === 0;
+    const down = button('\u2193', 'ghost', () => queueMove(item.uid, 'down'));
+    down.title = 'Move down';
+    down.disabled = index === queue.items.length - 1;
+    const remove = button('\u2715', 'danger ghost', () => queueRemove(item.uid));
+    remove.title = 'Remove from the queue';
+
+    actions.append(minutes, unit, up, down, remove);
+    el.appendChild(actions);
+    list.appendChild(el);
+  });
+}
+
 function renderPresets() {
   const list = $('presetList');
   list.textContent = '';
@@ -346,6 +548,13 @@ function renderPresets() {
       actions.push(button('Start', 'primary',
         () => startGame(preset, preset.executable, preset.durationMinutes || undefined)));
     }
+
+    // the preset's own auto-stop time is what the queue entry should use, falling back to the
+    // duration box when the preset does not carry one
+    const queueBtn = queueAddButton(preset, preset.executable, preset.durationMinutes || undefined,
+      'Add this preset to the queue');
+    queueBtn.disabled = Boolean(preset.missing);
+    actions.unshift(queueBtn);
     // a star here reads as "saved", not as "delete" - name the action instead
     const remove = button('Remove', 'danger ghost', () => togglePreset(preset));
     remove.title = 'Remove this preset from config.json';
@@ -406,7 +615,10 @@ function executableRows(game, durationMinutes) {
       ? button('Stop', 'danger', () => stopGame({ key: session.key }))
       : button('Start', 'ghost', () => startGame(game, exe.name, durationMinutes));
 
-    item.append(label, action);
+    const queueBtn = queueAddButton(game, exe.name, durationMinutes,
+      'Add this executable to the queue');
+
+    item.append(label, queueBtn, action);
     wrap.appendChild(item);
   });
 
@@ -430,7 +642,7 @@ function appendResultRow(container, game) {
   star.textContent = saved ? '★' : '☆';
   star.addEventListener('click', () => togglePreset(game));
 
-  const actions = [star];
+  const actions = [star, queueAddButton(game, executables[0].name)];
 
   if (game.custom) {
     const remove = button('✕', 'ghost', () => removeCustomGame(game));
@@ -567,10 +779,14 @@ async function loadState() {
   state.os = data.os;
   state.presets = data.presets;
   state.running = data.running;
+  if (data.queue) state.queue = data.queue;
   $('platform').textContent = data.os;
   $('duration').value = data.settings.defaultDurationMinutes || 0;
+  $('queueDelayMin').value = state.queue.delay.min;
+  $('queueDelayMax').value = state.queue.delay.max;
   renderMeta(data.games);
   renderRunning();
+  renderQueue();
   renderPresets();
   return data;
 }
@@ -608,15 +824,33 @@ $('refreshBtn').addEventListener('click', async (event) => {
   }
 });
 
+$('queueStartBtn').addEventListener('click', async (event) => {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  const data = await queueCall(state.queue.running ? '/api/queue/stop' : '/api/queue/start', { method: 'POST' });
+  btn.disabled = false;
+  if (data && data.ok && state.queue.running) toast('Queue started', 'ok');
+});
+
+$('queueSkipBtn').addEventListener('click', () => queueCall('/api/queue/skip', { method: 'POST' }));
+
+$('queueClearBtn').addEventListener('click', async () => {
+  if (state.queue.items.length && !confirm('Remove every entry from the queue?')) return;
+  await queueCall('/api/queue', { method: 'DELETE', body: JSON.stringify({ all: true }) });
+});
+
+// the gap is saved to config.json, so commit it on change rather than on every keystroke
+$('queueDelayMin').addEventListener('change', queueSaveDelay);
+$('queueDelayMax').addEventListener('change', queueSaveDelay);
+
 $('stopAllBtn').addEventListener('click', async (event) => {
   const btn = event.currentTarget;
   btn.disabled = true;
   try {
     const data = await api('/api/stop-all', { method: 'POST' });
     state.running = data.running;
-    renderRunning();
-    renderResults();
-    renderPresets();
+    if (data.queue) state.queue = data.queue;
+    refreshAll();
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -625,27 +859,32 @@ $('stopAllBtn').addEventListener('click', async (event) => {
 });
 
 
-// live clock for the running rows
+// live clock for the running rows, and the countdown to the queue's next game
 setInterval(() => {
   document.querySelectorAll('.timer').forEach((el) => {
     const started = Number(el.dataset.startedAt);
     if (started) el.textContent = formatElapsed(Math.floor((Date.now() - started) / 1000));
   });
+  if (state.queue.running) renderQueueStatus();
 }, 1000);
 
 // keep the panel in sync with the server (background refresh, auto-stop timers, CLI usage)
 setInterval(async () => {
   try {
     const data = await api('/api/state');
-    const changed = JSON.stringify(data.running.map((s) => s.pid)) !== JSON.stringify(state.running.map((s) => s.pid));
+    const signature = (payload) => JSON.stringify([
+      (payload.running || []).map((s) => s.pid),
+      // the queue moves on without any pid changing (a gap between two games), so its own
+      // shape has to be part of what counts as "something happened"
+      payload.queue ? [payload.queue.running, payload.queue.currentUid, payload.queue.nextUid,
+        payload.queue.items.map((i) => i.uid + ':' + i.status)] : null
+    ]);
+    const changed = signature(data) !== signature(state);
     state.running = data.running;
     state.presets = data.presets;
+    if (data.queue) state.queue = data.queue;
     renderMeta(data.games);
-    if (changed) {
-      renderRunning();
-      renderResults();
-      renderPresets();
-    }
+    if (changed) refreshAll();
   } catch (err) { /* server restarting */ }
 }, 5000);
 

@@ -113,7 +113,7 @@ function serveStatic(req, res, urlPath) {
 /**
  * Starts the little control panel. Everything the UI needs goes through /api/*.
  */
-function createServer({ config, store, spoofer }) {
+function createServer({ config, store, spoofer, queue }) {
   /**
    * config.json only stores id/name/executable, so fill in what the UI draws with: the icon,
    * the executables the preset resolves to, and whether the game is still detectable.
@@ -169,6 +169,7 @@ function createServer({ config, store, spoofer }) {
           games: store.meta(),
           running: spoofer.list(),
           presets: describePresets(),
+          queue: queue ? queue.describe() : null,
           settings: {
             defaultDurationMinutes: config.defaultDurationMinutes,
             maxConcurrent: config.maxConcurrent,
@@ -265,10 +266,76 @@ function createServer({ config, store, spoofer }) {
       }
 
       if (route === '/api/stop-all' && req.method === 'POST') {
+        // "stop everything" has to include the queue, or it would start the next game a few
+        // seconds later and look like the button did not work
+        if (queue) queue.stop();
         const stopped = spoofer.stopAll();
-        return sendJson(res, 200, { ok: true, stopped, running: spoofer.list() });
+        return sendJson(res, 200, { ok: true, stopped, running: spoofer.list(), queue: queue ? queue.describe() : null });
       }
 
+
+      /* ---- the quest queue: one game at a time, a random gap between each ---- */
+
+      if (route === '/api/queue' && req.method === 'POST') {
+        const body = await readBody(req);
+        const result = queue.add({
+          id: body.id || body.name,
+          executable: body.executable,
+          durationMinutes: body.durationMinutes
+        });
+        return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, { queue: queue.describe() }));
+      }
+
+      if (route === '/api/queue' && req.method === 'PATCH') {
+        const body = await readBody(req);
+        const result = queue.update(body.uid, body);
+        return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, { queue: queue.describe() }));
+      }
+
+      if (route === '/api/queue' && req.method === 'DELETE') {
+        const body = await readBody(req);
+        const result = body.all ? queue.clear() : queue.remove(body.uid);
+        return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, {
+          queue: queue.describe(),
+          running: spoofer.list()
+        }));
+      }
+
+      if (route === '/api/queue/move' && req.method === 'POST') {
+        const body = await readBody(req);
+        const result = queue.move(body.uid, body.direction);
+        return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, { queue: queue.describe() }));
+      }
+
+      if (route === '/api/queue/start' && req.method === 'POST') {
+        const result = queue.start();
+        return sendJson(res, result.ok ? 200 : 409, Object.assign({}, result, {
+          queue: queue.describe(),
+          running: spoofer.list()
+        }));
+      }
+
+      if (route === '/api/queue/stop' && req.method === 'POST') {
+        const result = queue.stop();
+        return sendJson(res, 200, Object.assign({}, result, {
+          queue: queue.describe(),
+          running: spoofer.list()
+        }));
+      }
+
+      if (route === '/api/queue/skip' && req.method === 'POST') {
+        const result = queue.skip();
+        return sendJson(res, result.ok ? 200 : 409, Object.assign({}, result, {
+          queue: queue.describe(),
+          running: spoofer.list()
+        }));
+      }
+
+      if (route === '/api/queue/settings' && req.method === 'POST') {
+        const body = await readBody(req);
+        const delay = queue.setDelay(body.minSeconds, body.maxSeconds);
+        return sendJson(res, 200, { ok: true, delay, queue: queue.describe() });
+      }
 
       if (route === '/api/presets' && req.method === 'POST') {
         const body = await readBody(req);
