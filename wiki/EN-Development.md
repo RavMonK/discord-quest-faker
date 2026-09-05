@@ -23,8 +23,8 @@ node --check src/spoof.js         # syntax check a file
 
 ## What the test suite covers
 
-`tests/` is **deliberately narrow** — only pure, deterministic logic that is safe to run without
-touching real project state:
+`tests/` uses temporary files, isolated loopback servers and injected persistence. It never
+writes the real project config or game cache:
 
 | File | Covers |
 |---|---|
@@ -33,14 +33,33 @@ touching real project state:
 | `tests/steam.test.js` | `parseAppId`, `normalizeExecutable`, `executablesInArguments`, `osKeysFor` |
 | `tests/queue.test.js` | `randomBetween`/`clampSeconds`, the list operations, and the whole advance cycle against a stub spoofer (**constructed with its own `save`**, so it never writes the real `config.json`) |
 
+## Security and Linux regression tests
+
+- `tests/server.test.js`: real loopback HTTP requests for Host/Origin/token checks, malformed requests, pagination and queue persistence.
+- `tests/security-paths.test.js`: traversal, symlinks, same-size executable tampering, failed replacements and compiled-cache integrity.
+- `tests/frontend-api.test.js`: token bootstrap and recovery after server restart, using the actual UI helper.
+- `tests/linux.test.js`: real system and Node placeholders, `/proc/<pid>/exe`, duplicate-start rejection and auto-stop. Skipped outside Linux.
+
+Use the latest patch of Node.js 22, 24 or 26 (24 LTS recommended). With Docker running, from the repository root:
+
+```bash
+for DQF_NODE in 22 24 26; do
+  docker run --rm --network none --user node \
+    --mount "type=bind,source=$(pwd),target=/app,readonly" --workdir /app \
+    "node:${DQF_NODE}-bookworm-slim" node --test --test-reporter=spec || exit 1
+done
+```
+
+The source mount is read-only; test data stays in temporary container directories. This verifies Linux process behavior, not Discord quest credit or a desktop GUI. Runtime files must remain writable only by trusted local users; these checks do not sandbox an attacker already running under the same account.
+
 ## What it deliberately does not cover (and why)
 
 | Area | Why |
 |---|---|
 | `config.js` → `load()` / `save()` | Both hardcode the real `config.json` path under the project root; there is no way to point them at a temp file, so testing them would risk clobbering the user's actual config |
 | Real timing of the queue's gap | The tests drive it with a `0`-second range; that a 30-70 s wait really is 30-70 s is `randomBetween`'s job, and that is tested directly |
-| Anything that spawns a real placeholder or invokes `csc.exe` | OS- and environment-dependent — exactly what the manual checks below are for |
-| `src/public/` (the frontend) | A plain browser script with no module exports and no DOM in the test process; simulating one would mean adding a dependency like jsdom, which breaks the zero-deps rule |
+| Windows/macOS GUI placeholders and compilers | Require native OS checks; Linux process tests run automatically on Linux |
+| Frontend DOM rendering | The API helper is tested using `node:vm`; rendering still needs a browser |
 
 Behaviour beyond that boundary is **verified against the OS, not through unit tests**.
 
@@ -72,10 +91,10 @@ Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*data\ru
 
 ## Changing the placeholder's C# source
 
-The C# source lives as a string inside `Spoofer.compile()` (`src/spoof.js`). **Bump
-`PLACEHOLDER_BUILD` whenever you change it** — otherwise cached placeholders are reused, because
-the stamp file is what decides a rebuild (it compares three things: the game name,
-`PLACEHOLDER_BUILD`, and the file size).
+The C# source lives inside `Spoofer.compileWindows()` (`src/spoof.js`). Bump
+`PLACEHOLDER_BUILD` when changing generated source. Compiled files are reused only when the
+name, build version and SHA-256 match an in-memory record from this process. The first start
+after restarting the tool rebuilds the placeholder; disk stamps are not trusted.
 
 Anything the window displays must arrive as an **argument**, never be compiled in — otherwise one
 build cannot serve every session and the ~800 ms compile comes back on every Start.

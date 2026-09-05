@@ -3,6 +3,7 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const crypto = require('crypto');
 const { OS_KEY, fold } = require('./games');
 const { Spoofer } = require('./spoof');
 const steam = require('./steam');
@@ -114,6 +115,11 @@ function serveStatic(req, res, urlPath) {
  * Starts the little control panel. Everything the UI needs goes through /api/*.
  */
 function createServer({ config, store, spoofer, queue }) {
+  const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+  if (!loopbackHosts.has(config.host || '127.0.0.1')) {
+    throw new Error('the control panel host must be 127.0.0.1, localhost, or ::1');
+  }
+  const apiToken = crypto.randomBytes(32).toString('hex');
   /**
    * config.json only stores id/name/executable, so fill in what the UI draws with: the icon,
    * the executables the preset resolves to, and whether the game is still detectable.
@@ -154,10 +160,55 @@ function createServer({ config, store, spoofer, queue }) {
   };
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
-    const route = url.pathname;
-
+    let route = '(invalid URL)';
     try {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+      res.setHeader('X-Frame-Options', 'DENY');
+      let base;
+      let url;
+      try {
+        // The Host header is an authority, never a URL supplied by the caller.
+        const host = req.headers.host;
+        if (!host || !/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host)) {
+          return sendJson(res, 400, { ok: false, reason: 'invalid Host header' });
+        }
+        base = new URL('http://' + host);
+        if (Number(base.port || 80) !== req.socket.localPort) {
+          return sendJson(res, 403, { ok: false, reason: 'unexpected Host port' });
+        }
+        if (!req.url.startsWith('/') || req.url.startsWith('//')) throw new Error('invalid target');
+        url = new URL(req.url, base);
+        if (url.origin !== base.origin) throw new Error('invalid target');
+      } catch (err) {
+        return sendJson(res, 400, { ok: false, reason: 'invalid request URL' });
+      }
+      route = url.pathname;
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
+        return sendJson(res, 403, { ok: false, reason: 'local connections only' });
+      }
+      if (req.headers.origin !== undefined && req.headers.origin !== base.origin) {
+        return sendJson(res, 403, { ok: false, reason: 'cross-origin request denied' });
+      }
+      if (route.startsWith('/api/')) {
+        const site = req.headers['sec-fetch-site'];
+        if (site && site !== 'same-origin' && site !== 'none') {
+          return sendJson(res, 403, { ok: false, reason: 'cross-site request denied' });
+        }
+        // Only same-origin pages and local CLI clients can bootstrap this per-process token.
+        if (route === '/api/session' && req.method === 'GET') {
+          return sendJson(res, 200, { token: apiToken });
+        }
+        const supplied = req.headers['x-dqf-token'];
+        if (typeof supplied !== 'string' || !/^[a-f0-9]{64}$/.test(supplied)
+          || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(apiToken))) {
+          return sendJson(res, 403, { ok: false, code: 'invalid_token', reason: 'invalid API token' });
+        }
+        if (['POST', 'PATCH', 'DELETE'].includes(req.method)
+          && !/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) {
+          return sendJson(res, 415, { ok: false, reason: 'Content-Type must be application/json' });
+        }
+      }
       if (req.method === 'GET' && !route.startsWith('/api/')) {
         return serveStatic(req, res, route);
       }
@@ -180,8 +231,12 @@ function createServer({ config, store, spoofer, queue }) {
       }
 
       if (route === '/api/games' && req.method === 'GET') {
-        const limit = Math.min(Number(url.searchParams.get('limit')) || 100, 500);
-        const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
+        const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : 100;
+        const offset = url.searchParams.has('offset') ? Number(url.searchParams.get('offset')) : 0;
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500
+          || !Number.isSafeInteger(offset) || offset < 0) {
+          return sendJson(res, 400, { ok: false, reason: 'limit must be an integer from 1 to 500; offset must be a non-negative integer' });
+        }
         const onlyThisOs = url.searchParams.get('all') !== '1';
         return sendJson(res, 200, store.search(url.searchParams.get('q') || '', { limit, offset, onlyThisOs }));
       }
