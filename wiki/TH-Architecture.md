@@ -64,7 +64,7 @@ CLI override อย่าง `--port` / `--headless` มีผลกับ confi
 | `select(game, wanted)` | แปลง `"all"` / ชื่อ / index → รายการ executable |
 | `materialize(game, exe)` | สร้าง path ไฟล์ปลอม (รวม directory prefix และ `.app` bundle) |
 | `provision(target, tier, ...)` | สร้าง placeholder ตามชั้นนั้น คืน args + นโยบายรีสตาร์ท |
-| `compile(target, name)` | เรียก `csc.exe` มี stamp file กัน build ซ้ำ |
+| `compile(target, name)` | คอมไพล์ placeholder และ cache SHA-256 ในหน่วยความจำเฉพาะรอบที่เปิดโปรแกรมนี้ |
 | `ensureIcon(game)` | คืน path ไอคอนทันที โหลดจริงแบบ background |
 | `startOne(game, exe, opts)` | ยิงทีละชั้นจนติด ผูก handler `exit`/`error` ตั้ง timer auto-stop |
 | `stop(key, sync)` | `taskkill /T /F` บน Windows, SIGTERM→SIGKILL บน Unix |
@@ -132,17 +132,18 @@ Discord scan โปรเซส เห็น path ที่ลงท้ายต
 4. **session key คือ `<game id>::<executable>`** — เกมเดียวจึงรันหลาย executable พร้อมกันได้
 5. **`waitfor` ปฏิเสธชื่อ signal ที่ถูกใช้อยู่** — ทุก session ต้องมี `signalToken()` ของตัวเอง
    ถ้าใช้ token เดียวกัน executable ตัวที่สองขึ้นไปจะถูกฆ่าเงียบ ๆ
-6. **id เกมและชื่อ executable มาจากภายนอก** — `steam:<appid>` และชื่อจาก API ต้องผ่าน
-   `safeName()` / กรอง `..` ก่อนกลายเป็น path
-7. **`copyBinary()` ลอง hard link ก่อนแล้วค่อย copy** — link จาก `C:\Program Files` ล้มด้วย EPERM
-   สำหรับ user ทั่วไป
+6. **id เกมและชื่อ executable มาจากภายนอก** — ตรวจรูปแบบ ID, ปฏิเสธ traversal,
+   ตรวจว่า path อยู่ใน runtime และไม่มี symlink ก่อนสร้างไฟล์
+7. **`copyBinary()` ตรวจ SHA-256 เทียบต้นฉบับ** — ใช้สำเนาแยกทุก OS แทน hard link
+   เปลี่ยนไฟล์ที่ถูกแก้ไขแบบ atomic และหยุดเมื่อสร้างไฟล์ที่เชื่อถือได้ไม่สำเร็จ
 8. **นโยบายรีสตาร์ทต่างกันตามชั้นโดยเจตนา** — `system`/`node` หมดเวลาแล้วรันใหม่, `compiled`
    จบเพราะผู้ใช้ปิดหน้าต่าง = สั่งหยุด **ห้ามรันใหม่**
 9. **ปิดโปรแกรมต้องใช้ kill แบบ sync** — `stopAll(true)` เพราะ async kill ไม่รอด `process.exit`
 10. **ทุก endpoint ที่คืน preset ต้องผ่าน `describePresets()`** — `config.json` เก็บแค่
     id/name/executable ส่งดิบ ๆ ให้ UI แล้ว `renderPresets` จะ throw กลางการ render
     ทำให้หน้าเว็บว่างเปล่าจนถึงรอบ poll ถัดไป
-11. **`PLACEHOLDER_BUILD` ต้องบวกเมื่อแก้ซอร์ส C#** — stamp file เป็นตัวตัดสินว่าจะ build ใหม่ไหม
+11. **`PLACEHOLDER_BUILD` ต้องบวกเมื่อแก้ซอร์ส C#** — cache ในหน่วยความจำตรวจชื่อเกม, build version และ SHA-256
+    เปิดโปรแกรมใหม่จะ build ใหม่หนึ่งครั้ง ไม่เชื่อถือ stamp บนดิสก์
 12. **ห้ามเอา executable ข้ามแพลตฟอร์มกลับมา** — โปรเซสชื่อ `.exe` บน macOS เป็น signal
     ที่ตรวจจับง่ายเกินไป (ดู [ความต่างของแต่ละระบบ](TH-Platform-Notes))
 

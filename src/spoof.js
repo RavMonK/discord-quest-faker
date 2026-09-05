@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const crypto = require('crypto');
 const { spawn, spawnSync, execFile } = require('child_process');
 const { OS_KEY } = require('./games');
 
@@ -95,8 +96,11 @@ class Spoofer {
     this.iconFetches = new Set(); // icon files being downloaded right now
     this.warned = new Set(); // platform caveats already printed this run
     this.endListeners = []; // notified once per session that leaves `running`
+    // Disk stamps are writable alongside executables. Trust only builds made this process.
+    this.compiledCache = new Map();
     this.keepalivePath = path.join(config.runtimePath, 'keepalive.js');
-    fs.mkdirSync(config.runtimePath, { recursive: true });
+    fs.mkdirSync(config.runtimePath, { recursive: true, mode: 0o700 });
+    this.runtimeTarget('keepalive.js');
     fs.writeFileSync(this.keepalivePath, KEEPALIVE_SOURCE, 'utf8');
   }
 
@@ -202,29 +206,20 @@ class Spoofer {
     const clang = Spoofer.clangPath();
     if (!clang) throw new Error('clang with the Cocoa SDK not found (xcode-select --install)');
 
-    const buildDir = path.join(this.config.runtimePath, '_build');
+    const buildDir = this.runtimeTarget('_build');
     fs.mkdirSync(buildDir, { recursive: true });
 
     const name = Spoofer.objcString(game.name);
-    const stampPath = path.join(buildDir, Spoofer.signalToken('m', target) + '.json');
-
-    // Compiling costs a second or two, so skip it when this exact file was already built.
-    if (fs.existsSync(target) && fs.existsSync(stampPath)) {
-      try {
-        const stamp = JSON.parse(fs.readFileSync(stampPath, 'utf8'));
-        if (stamp.name === name && stamp.build === PLACEHOLDER_BUILD
-          && stamp.size === fs.statSync(target).size) return target;
-      } catch (err) { /* rebuild */ }
-    }
+    if (this.compiledMatches(target, name)) return target;
 
     // Stands in for the icon until it is downloaded, and forever if there is none.
     const initial = Spoofer.objcString(String(game.name || '').trim().charAt(0).toUpperCase() || '?');
-    const sourcePath = path.join(buildDir, Spoofer.signalToken('o', target) + '.m');
+    const sourcePath = this.runtimeTarget('_build', Spoofer.signalToken('o', target) + '.m');
     fs.writeFileSync(sourcePath, Spoofer.macSource(name, initial), 'utf8');
 
     // Compiling into the bundle directly would fail once macOS has protected it, so the binary
     // is built aside and installed in a step that knows how to recover from that.
-    const built = path.join(buildDir, Spoofer.signalToken('x', target) + '.bin');
+    const built = this.runtimeTarget('_build', Spoofer.signalToken('x', target) + '.bin');
     const result = spawnSync(clang.binary, [
       '-x', 'objective-c', '-fobjc-arc', '-O2', '-isysroot', clang.sdk,
       '-framework', 'Cocoa', '-o', built, sourcePath
@@ -236,11 +231,7 @@ class Spoofer {
     }
 
     this.installMacBinary(built, target, game);
-    fs.writeFileSync(stampPath, JSON.stringify({
-      name,
-      build: PLACEHOLDER_BUILD,
-      size: fs.statSync(target).size
-    }), 'utf8');
+    this.rememberCompiled(target, name);
     return target;
   }
 
@@ -465,22 +456,13 @@ class Spoofer {
     const csc = Spoofer.cscPath();
     if (!csc) throw new Error('csc.exe (.NET Framework) not found');
 
-    const buildDir = path.join(this.config.runtimePath, '_build');
+    const buildDir = this.runtimeTarget('_build');
     fs.mkdirSync(buildDir, { recursive: true });
 
     const name = Spoofer.csharpString(displayName);
-    const stampPath = path.join(buildDir, Spoofer.signalToken('b', target) + '.json');
+    if (this.compiledMatches(target, name)) return target;
 
-    // Rebuilding costs ~800ms, so skip it when this exact file was already built for this name.
-    if (fs.existsSync(target) && fs.existsSync(stampPath)) {
-      try {
-        const stamp = JSON.parse(fs.readFileSync(stampPath, 'utf8'));
-        if (stamp.name === name && stamp.build === PLACEHOLDER_BUILD
-          && stamp.size === fs.statSync(target).size) return target;
-      } catch (err) { /* rebuild */ }
-    }
-
-    const sourcePath = path.join(buildDir, Spoofer.signalToken('s', target) + '.cs');
+    const sourcePath = this.runtimeTarget('_build', Spoofer.signalToken('s', target) + '.cs');
     const fileName = Spoofer.csharpString(path.basename(target));
     // Stands in for the icon until it is downloaded, and forever if there is none.
     const initial = Spoofer.csharpString(String(displayName || '').trim().charAt(0).toUpperCase() || '?');
@@ -698,11 +680,7 @@ class Spoofer {
       throw new Error('csc failed: ' + String(result.stderr || result.stdout || result.error || '').trim().split('\n')[0]);
     }
 
-    fs.writeFileSync(stampPath, JSON.stringify({
-      name,
-      build: PLACEHOLDER_BUILD,
-      size: fs.statSync(target).size
-    }), 'utf8');
+    this.rememberCompiled(target, name);
     return target;
   }
 
@@ -759,6 +737,60 @@ class Spoofer {
    */
   static safeName(value) {
     return String(value).replace(/[^0-9a-zA-Z._-]/g, '_');
+  }
+
+  static gameDirectory(value) {
+    const id = String(value ?? '');
+    if (id.length > 128 || !/^(?:[a-zA-Z0-9][a-zA-Z0-9._-]*|steam:[0-9]+)$/.test(id)
+      || /[. ]$/.test(id) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(id)) {
+      throw new Error('unsafe game id');
+    }
+    return Spoofer.safeName(id);
+  }
+
+  /** Check containment before creating directories; existing symlinks must not redirect writes. */
+  runtimeTarget(...parts) {
+    const root = path.resolve(this.config.runtimePath);
+    const target = path.resolve(root, ...parts);
+    const relative = path.relative(root, target);
+    if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+      throw new Error('unsafe runtime path');
+    }
+    let current = root;
+    for (const part of ['', ...relative.split(path.sep)]) {
+      current = path.join(current, part);
+      try {
+        if (fs.lstatSync(current).isSymbolicLink()) throw new Error('unsafe runtime symlink');
+      } catch (err) { if (err.code !== 'ENOENT') throw err; }
+    }
+    return target;
+  }
+
+  static fileHash(file) {
+    const hash = crypto.createHash('sha256');
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buffer = Buffer.alloc(64 * 1024);
+      let size;
+      while ((size = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+        hash.update(buffer.subarray(0, size));
+      }
+      return hash.digest('hex');
+    } finally { fs.closeSync(fd); }
+  }
+
+  compiledMatches(target, name) {
+    const stamp = this.compiledCache.get(target);
+    if (!stamp || stamp.name !== name || stamp.build !== PLACEHOLDER_BUILD) return false;
+    try {
+      this.runtimeTarget(path.relative(this.config.runtimePath, target));
+      const stat = fs.lstatSync(target);
+      return stat.isFile() && stat.nlink === 1 && Spoofer.fileHash(target) === stamp.hash;
+    } catch (err) { return false; }
+  }
+
+  rememberCompiled(target, name) {
+    this.compiledCache.set(target, { name, build: PLACEHOLDER_BUILD, hash: Spoofer.fileHash(target) });
   }
 
   /** One session per executable, so the same game can run several of them at once. */
@@ -859,10 +891,12 @@ class Spoofer {
     const relative = exe.name.replace(/\\/g, '/').replace(/^\/+/, '');
     const dir = path.posix.dirname(relative);
     const base = path.posix.basename(relative);
-    if (!base || base === '.' || base === '..') {
+    if (!base || relative.split('/').some((part) => part === '..')
+      || base === '.' || base === '..' || /[\x00-\x1f<>:"|?*]/.test(relative)
+      || relative.split('/').some((part) => part !== '.' && /[. ]$/.test(part))) {
       throw new Error('unsafe executable name: ' + exe.name);
     }
-    const gameDirName = Spoofer.safeName(game.id);
+    const gameDirName = Spoofer.gameDirectory(game.id);
     const parents = (dir === '.' ? [] : dir.split('/')).filter((p) => p && p !== '.' && p !== '..');
     let target;
 
@@ -870,13 +904,16 @@ class Spoofer {
       // macOS entries point at an app bundle, so recreate a minimal one: the running process
       // path then ends with Foo.app/Contents/MacOS/Foo exactly like the real game.
       const binaryName = base.slice(0, -4);
-      const bundleDir = path.join(this.config.runtimePath, gameDirName, ...parents, base);
+      if (!binaryName || binaryName === '.' || binaryName === '..') throw new Error('unsafe executable name');
+      const bundleDir = this.runtimeTarget(gameDirName, ...parents, base);
+      this.runtimeTarget(gameDirName, ...parents, base, 'Contents', 'MacOS', binaryName);
+      this.runtimeTarget(gameDirName, ...parents, base, 'Contents', 'Info.plist');
       const macosDir = Spoofer.writeBundle(bundleDir, Spoofer.bundlePlist(binaryName, game.id));
       target = path.join(macosDir, binaryName);
     } else {
-      const gameDir = path.join(this.config.runtimePath, gameDirName, ...parents);
+      const gameDir = this.runtimeTarget(gameDirName, ...parents);
+      target = this.runtimeTarget(gameDirName, ...parents, base);
       fs.mkdirSync(gameDir, { recursive: true });
-      target = path.join(gameDir, base);
     }
 
     return target;
@@ -925,48 +962,25 @@ class Spoofer {
     };
   }
 
-  /**
-   * Put a runnable copy of `source` at `target`.
-   * A hard link costs no disk space, so it is tried first; copying is the fallback when the
-   * source lives on another volume or in a directory we may not link from (Program Files).
-   *
-   * macOS is the exception: a hard link shares its inode with the source, and proc_pidpath()
-   * - the call Discord uses to read a process's executable path - then answers with whichever
-   * name of that inode the kernel's cache happens to hold. Observed both ways for the same
-   * placeholder, so on Discord's side the process is sometimes "node" and detection silently
-   * fails. A real copy has its own inode and only one name.
-   */
+  /** Verify against the trusted source, or replace atomically. Never execute an unverified file. */
   copyBinary(source, target) {
-    const sourceStat = fs.statSync(source);
-    const mayLink = process.platform !== 'darwin';
-
-    if (fs.existsSync(target)) {
-      const targetStat = fs.statSync(target);
-      const shared = targetStat.ino !== 0 && targetStat.ino === sourceStat.ino;
-      // A shared inode is free reuse where linking is allowed, and precisely the thing that
-      // has to be thrown away where it is not.
-      const usable = shared ? mayLink : targetStat.size === sourceStat.size;
-      if (usable) return target;
-      try { fs.unlinkSync(target); } catch (err) { return target; /* locked = in use */ }
-    }
-
-    let linked = false;
-    if (mayLink) {
-      try { fs.linkSync(source, target); linked = true; } catch (err) { /* copy instead */ }
-    }
-    if (!linked) {
-      try {
-        fs.copyFileSync(source, target);
-      } catch (copyErr) {
-        // A previous copy may still be locked by a running process on Windows - reuse it.
-        if (!fs.existsSync(target)) {
-          throw new Error('could not create fake executable: ' + copyErr.message);
-        }
+    this.runtimeTarget(path.relative(this.config.runtimePath, target));
+    const hash = Spoofer.fileHash(source);
+    try {
+      const stat = fs.lstatSync(target);
+      if (stat.isFile() && stat.nlink === 1 && Spoofer.fileHash(target) === hash) {
+        if (process.platform !== 'win32') fs.chmodSync(target, 0o755);
+        return target;
       }
-    }
-
-    if (process.platform !== 'win32') {
-      try { fs.chmodSync(target, 0o755); } catch (err) { /* best effort */ }
+    } catch (err) { if (err.code !== 'ENOENT') throw err; }
+    const temp = target + '.' + crypto.randomBytes(12).toString('hex') + '.tmp';
+    try {
+      fs.copyFileSync(source, temp, fs.constants.COPYFILE_EXCL);
+      if (Spoofer.fileHash(temp) !== hash) throw new Error('placeholder integrity check failed');
+      if (process.platform !== 'win32') fs.chmodSync(temp, 0o755);
+      fs.renameSync(temp, target);
+    } finally {
+      try { fs.unlinkSync(temp); } catch (err) { if (err.code !== 'ENOENT') throw err; }
     }
     return target;
   }

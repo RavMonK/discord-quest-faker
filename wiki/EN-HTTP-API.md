@@ -9,8 +9,9 @@ a static file from `src/public/`.
 
 **Base URL** `http://127.0.0.1:5011` (follows `host`/`port`)
 
-> ⚠️ **The API has no authentication**, which is why it binds to `127.0.0.1` by default. Anyone
-> who can reach it can start and stop processes on this machine — think before changing `host`.
+The panel accepts loopback connections only (`127.0.0.1`, `localhost`, or `::1`). Host, Origin and Fetch Metadata checks block cross-site requests. Every API request except `GET /api/session` requires an `X-DQF-Token` header. The UI obtains the token automatically. The token changes on restart and is not written to disk. This protects against websites; other programs running locally can obtain a session, so it is not a login system.
+
+`GET /api/session` returns `{ "token": "..." }` with `Cache-Control: no-store`. POST/PATCH/DELETE requests must send `Content-Type: application/json`, even for an empty body. Invalid tokens or origins return 403, malformed URLs/Hosts return 400, and incorrect content types return 415. `limit` must be an integer from 1 to 500; `offset` must be a non-negative safe integer; invalid pagination returns 400.
 
 Shared details:
 
@@ -238,12 +239,14 @@ Appends a preset to `config.json` (an id already present is a no-op that still a
 ## curl examples
 
 ```bash
-curl http://127.0.0.1:5011/api/state
-curl "http://127.0.0.1:5011/api/games?q=overwatch&limit=5"
-curl -X POST http://127.0.0.1:5011/api/start -H "Content-Type: application/json" -d '{"id":"356875221078245376"}'
-curl -X POST http://127.0.0.1:5011/api/stop-all
-curl -X POST http://127.0.0.1:5011/api/queue -H "Content-Type: application/json" -d '{"id":"356875221078245376","durationMinutes":20}'
-curl -X POST http://127.0.0.1:5011/api/queue/start
+DQF_TOKEN=$(curl -fsS http://127.0.0.1:5011/api/session | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).token')
+
+curl -H "X-DQF-Token: $DQF_TOKEN" http://127.0.0.1:5011/api/state
+curl -H "X-DQF-Token: $DQF_TOKEN" "http://127.0.0.1:5011/api/games?q=overwatch&limit=5"
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/start -H "Content-Type: application/json" -d '{"id":"356875221078245376"}'
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/stop-all -H "Content-Type: application/json"
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/queue -H "Content-Type: application/json" -d '{"id":"356875221078245376","durationMinutes":20}'
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/queue/start -H "Content-Type: application/json"
 ```
 
 ## Read next

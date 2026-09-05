@@ -9,8 +9,9 @@
 
 **base URL** `http://127.0.0.1:5011` (เปลี่ยนตาม `host`/`port`)
 
-> ⚠️ **API ไม่มีระบบยืนยันตัวตน** ค่าเริ่มต้นจึงผูกไว้ที่ `127.0.0.1` เท่านั้น ใครเข้าถึงได้
-> ก็สั่งรัน/หยุดโปรเซสบนเครื่องนี้ได้ — คิดให้ดีก่อนเปลี่ยน `host`
+หน้าเว็บรับการเชื่อมต่อเฉพาะเครื่องนี้ (`127.0.0.1`, `localhost` หรือ `::1`) และตรวจ Host, Origin กับ Fetch Metadata เพื่อป้องกันคำสั่งจากเว็บไซต์อื่น ทุก API ยกเว้น `GET /api/session` ต้องแนบ `X-DQF-Token` หน้าเว็บขอ token ให้อัตโนมัติ token เปลี่ยนเมื่อเปิดโปรแกรมใหม่และไม่บันทึกลงดิสก์ กลไกนี้ป้องกันเว็บไซต์ภายนอก โปรแกรมอื่นในเครื่องยังขอ session ได้ จึงไม่ใช่ระบบล็อกอิน
+
+`GET /api/session` คืน `{ "token": "..." }` พร้อม `Cache-Control: no-store` คำสั่ง POST/PATCH/DELETE ต้องส่ง `Content-Type: application/json` แม้ไม่มี body token หรือ Origin ไม่ถูกต้องตอบ 403, URL/Host ผิดรูปแบบตอบ 400 และ Content-Type ไม่ถูกต้องตอบ 415 `limit` ต้องเป็นจำนวนเต็ม 1–500 และ `offset` เป็นจำนวนเต็มไม่ติดลบที่อยู่ในช่วง safe integer; ค่าผิดเงื่อนไขตอบ 400
 
 รายละเอียดร่วม:
 
@@ -235,12 +236,14 @@
 ## ตัวอย่างใช้ด้วย curl
 
 ```bash
-curl http://127.0.0.1:5011/api/state
-curl "http://127.0.0.1:5011/api/games?q=overwatch&limit=5"
-curl -X POST http://127.0.0.1:5011/api/start -H "Content-Type: application/json" -d '{"id":"356875221078245376"}'
-curl -X POST http://127.0.0.1:5011/api/stop-all
-curl -X POST http://127.0.0.1:5011/api/queue -H "Content-Type: application/json" -d '{"id":"356875221078245376","durationMinutes":20}'
-curl -X POST http://127.0.0.1:5011/api/queue/start
+DQF_TOKEN=$(curl -fsS http://127.0.0.1:5011/api/session | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).token')
+
+curl -H "X-DQF-Token: $DQF_TOKEN" http://127.0.0.1:5011/api/state
+curl -H "X-DQF-Token: $DQF_TOKEN" "http://127.0.0.1:5011/api/games?q=overwatch&limit=5"
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/start -H "Content-Type: application/json" -d '{"id":"356875221078245376"}'
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/stop-all -H "Content-Type: application/json"
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/queue -H "Content-Type: application/json" -d '{"id":"356875221078245376","durationMinutes":20}'
+curl -H "X-DQF-Token: $DQF_TOKEN" -X POST http://127.0.0.1:5011/api/queue/start -H "Content-Type: application/json"
 ```
 
 ## อ่านต่อ

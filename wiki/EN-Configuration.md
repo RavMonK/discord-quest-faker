@@ -37,7 +37,7 @@ state, not source.
 | Key | Default | Meaning |
 |---|---|---|
 | `port` | `5011` | Control panel port (overridable with `--port`) |
-| `host` | `127.0.0.1` | Bind address — local-only by default |
+| `host` | `127.0.0.1` | Loopback only: `127.0.0.1`, `localhost`, or `::1`; other addresses are rejected |
 | `openBrowser` | `true` | Open a browser on launch (`--headless` disables it) |
 | `apiUrl` | Discord's endpoint | Source of the detectable list |
 | `gamesFile` | `data/games.json` | Where the game list is cached |

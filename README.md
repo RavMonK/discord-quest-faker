@@ -41,7 +41,7 @@ Node.js ล้วน ๆ **ไม่มี dependency ภายนอกแม�
 
 ## เริ่มใช้
 
-ต้องมี **Node.js 18+** และเปิด **Discord ตัว desktop** ไว้ (เวอร์ชันเว็บตรวจจับเกมไม่ได้)
+ต้องมี **Node.js 22/24/26 (แนะนำ 24 LTS)** และเปิด **Discord ตัว desktop** ไว้ (เวอร์ชันเว็บตรวจจับเกมไม่ได้)
 
 ```bash
 node src/index.js          # Windows ดับเบิลคลิก start.bat ก็ได้

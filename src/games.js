@@ -8,7 +8,7 @@ const OS_KEY = process.platform === 'win32' ? 'win32'
   : process.platform === 'darwin' ? 'darwin'
   : 'linux';
 
-/** GET a JSON document. Uses fetch (node >= 18) with an https fallback. */
+/** GET a JSON document. Uses the runtime's fetch with an https fallback. */
 async function fetchJson(apiUrl) {
   const headers = {
     'Accept': 'application/json',
