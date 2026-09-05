@@ -64,7 +64,7 @@ The heart of the tool — ~890 lines including the placeholder's C# source, expl
 | `select(game, wanted)` | Resolves `"all"` / a name / an index to a list of executables |
 | `materialize(game, exe)` | Builds the placeholder path (directory prefixes, `.app` bundles) |
 | `provision(target, tier, ...)` | Creates the placeholder for a tier; returns args + restart policy |
-| `compile(target, name)` | Invokes `csc.exe`, with a stamp file preventing needless rebuilds |
+| `compile(target, name)` | Builds a placeholder; verified SHA-256 builds are cached in memory for this run |
 | `ensureIcon(game)` | Returns the icon path immediately, downloading in the background |
 | `startOne(game, exe, opts)` | Tries each tier until one spawns; wires `exit`/`error`; sets the auto-stop timer |
 | `stop(key, sync)` | `taskkill /T /F` on Windows, SIGTERM→SIGKILL on Unix |
@@ -136,10 +136,10 @@ Discord scans processes, sees a path ending with one of its entries, and shows t
 4. **A session is keyed `<game id>::<executable>`** — one game can run several executables at once.
 5. **`waitfor` refuses a signal name already in use** — each session needs its own
    `signalToken()`. Sharing one silently kills every executable of a game except the first.
-6. **Game ids and executable names are third-party text** — `steam:<appid>` and API-supplied
-   names must pass through `safeName()` / `..` filtering before becoming paths.
-7. **`copyBinary()` tries a hard link first, then copies** — linking from `C:\Program Files`
-   fails with EPERM for standard users.
+6. **Game ids and executable names are third-party text** — validate IDs, reject traversal,
+   and check runtime containment and symlinks before creating files.
+7. **`copyBinary()` verifies SHA-256 against its source** — use independent copies on every OS,
+   replace altered files atomically, and fail if a trustworthy replacement cannot be installed.
 8. **Restart policy differs per tier, deliberately** — `system`/`node` time out and are
    respawned; a `compiled` placeholder exits because a user closed its window, which counts as a
    stop and **must not be respawned**.
@@ -148,8 +148,8 @@ Discord scans processes, sees a path ending with one of its entries, and shows t
 10. **Every endpoint returning presets must go through `describePresets()`** — `config.json`
     holds only id/name/executable, and handing those raw entries to the UI made `renderPresets`
     throw mid-render, blanking the panel until the next poll.
-11. **`PLACEHOLDER_BUILD` must be bumped when the C# source changes** — the stamp file is what
-    decides a rebuild.
+11. **`PLACEHOLDER_BUILD` must be bumped when the C# source changes** — the in-memory cache checks the name, build version and SHA-256.
+    A new process rebuilds once; disk stamps are not trusted.
 12. **Never reintroduce cross-platform executables** — a `.exe` process on macOS is a trivially
     detectable spoofing signal (see [Platform notes](EN-Platform-Notes)).
 

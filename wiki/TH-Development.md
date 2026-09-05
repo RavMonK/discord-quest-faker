@@ -23,8 +23,8 @@ node --check src/spoof.js         # เช็ค syntax ไฟล์เดีย
 
 ## ชุดทดสอบครอบคลุมอะไร
 
-`tests/` **จงใจแคบ** — ครอบคลุมแค่ logic ที่ pure และ deterministic ที่รันได้โดยไม่แตะ state จริง
-ของโปรเจกต์:
+`tests/` ใช้ไฟล์ชั่วคราว, HTTP server บน loopback แยกต่างหาก และ save จำลอง
+จึงไม่เขียน config หรือ cache เกมจริงของโปรเจกต์:
 
 | ไฟล์ | ครอบคลุม |
 |---|---|
@@ -33,14 +33,33 @@ node --check src/spoof.js         # เช็ค syntax ไฟล์เดีย
 | `tests/steam.test.js` | `parseAppId`, `normalizeExecutable`, `executablesInArguments`, `osKeysFor` |
 | `tests/queue.test.js` | `randomBetween`/`clampSeconds`, การจัดการลิสต์ และวงจรเลื่อนคิวทั้งวงจร โดยใช้ spoofer จำลอง (**สร้างพร้อม `save` ของตัวเอง** จึงไม่แตะ `config.json` จริง) |
 
+## Regression tests ด้านความปลอดภัยและ Linux
+
+- `tests/server.test.js`: ส่ง HTTP จริงบน loopback ตรวจ Host/Origin/token, request ผิดรูปแบบ, pagination และการบันทึกคิว
+- `tests/security-paths.test.js`: traversal, symlink, executable ที่ถูกแก้แต่ขนาดเท่าเดิม, การเปลี่ยนไฟล์ล้มเหลว และ compiled cache
+- `tests/frontend-api.test.js`: ขอ token และกู้ session เมื่อ server restart ด้วย API helper ตัวจริงของหน้าเว็บ
+- `tests/linux.test.js`: รัน system/Node placeholder จริง ตรวจ `/proc/<pid>/exe`, ปฏิเสธการเริ่มซ้ำ และ auto-stop; ข้ามเมื่อไม่ใช่ Linux
+
+ใช้ patch ล่าสุดของ Node.js 22, 24 หรือ 26 (แนะนำ 24 LTS) เปิด Docker แล้วรันจากรากโปรเจกต์:
+
+```bash
+for DQF_NODE in 22 24 26; do
+  docker run --rm --network none --user node \
+    --mount "type=bind,source=$(pwd),target=/app,readonly" --workdir /app \
+    "node:${DQF_NODE}-bookworm-slim" node --test --test-reporter=spec || exit 1
+done
+```
+
+mount ซอร์สแบบอ่านอย่างเดียว ข้อมูลทดสอบอยู่ในโฟลเดอร์ชั่วคราวของ container เท่านั้น ผลนี้ยืนยันพฤติกรรมโปรเซสบน Linux ไม่ใช่การนับ quest ของ Discord หรือ desktop GUI ต้องจำกัดสิทธิ์เขียน runtime ให้ผู้ใช้ที่เชื่อถือได้; การตรวจเหล่านี้ไม่ได้ sandbox ผู้โจมตีที่รันอยู่ในบัญชีเดียวกันแล้ว
+
 ## ที่จงใจไม่ทดสอบ (และเหตุผล)
 
 | ส่วน | เหตุผล |
 |---|---|
 | `config.js` → `load()` / `save()` | ทั้งคู่ hardcode path ของ `config.json` จริงใต้รากโปรเจกต์ ไม่มีทางชี้ไป temp file ได้ ทดสอบก็เสี่ยงทับ config จริงของผู้ใช้ |
 | เวลาจริงของช่องว่างในคิว | เทสต์รันด้วยช่วง `0` วินาที ส่วนที่ว่ารอ 30-70 วิจริงไหม เป็นหน้าที่ของ `randomBetween` ซึ่งทดสอบตรง ๆ อยู่แล้ว |
-| อะไรที่ spawn placeholder จริง หรือเรียก `csc.exe` | ขึ้นกับ OS และสภาพเครื่อง — เป็นหน้าที่ของการตรวจด้วยมือด้านล่าง |
-| `src/public/` (ฝั่งเว็บ) | เป็น browser script ที่ไม่ export อะไร และไม่มี DOM ในโปรเซสทดสอบ จะจำลองต้องเพิ่ม dependency อย่าง jsdom ซึ่งผิดกฎ zero-deps |
+| GUI placeholder และ compiler บน Windows/macOS | ต้องตรวจกับ OS นั้น; process test ของ Linux รันอัตโนมัติเมื่ออยู่บน Linux |
+| การ render DOM ฝั่งเว็บ | ทดสอบ API helper ด้วย `node:vm`; ส่วน render ยังต้องใช้เบราว์เซอร์ |
 
 พฤติกรรมที่อยู่นอกขอบเขตนั้น **ตรวจกับ OS จริง ไม่ใช่ผ่าน unit test**
 
@@ -72,9 +91,10 @@ Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*data\ru
 
 ## แก้ซอร์ส C# ของ placeholder
 
-ซอร์ส C# อยู่ในสตริงข้างใน `Spoofer.compile()` (`src/spoof.js`) **ต้องบวก `PLACEHOLDER_BUILD`
-ทุกครั้งที่แก้** ไม่งั้นไฟล์ที่ cache ไว้เดิมจะถูกใช้ต่อ เพราะไฟล์ stamp เป็นตัวตัดสินว่าจะ build ใหม่ไหม
-(เทียบ 3 อย่าง: ชื่อเกม, `PLACEHOLDER_BUILD`, ขนาดไฟล์)
+ซอร์ส C# อยู่ใน `Spoofer.compileWindows()` (`src/spoof.js`) บวก `PLACEHOLDER_BUILD`
+เมื่อแก้ซอร์สที่สร้างขึ้น ใช้ไฟล์ compiled ซ้ำได้เมื่อชื่อเกม, build version และ SHA-256
+ตรงกับข้อมูลในหน่วยความจำของโปรเซสนี้เท่านั้น เปิดโปรแกรมใหม่จะคอมไพล์ใหม่หนึ่งครั้ง
+ไม่เชื่อถือ stamp ที่เก็บบนดิสก์
 
 สิ่งที่หน้าต่างแสดงต้องส่งเข้าไปเป็น **argument** เสมอ ไม่ใช่คอมไพล์ติดมา — ไม่งั้น build เดียว
 จะใช้ซ้ำหลาย session ไม่ได้ และการคอมไพล์ ~800 ms จะกลับมาเกิดทุกครั้งที่กด Start
