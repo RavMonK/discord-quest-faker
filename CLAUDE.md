@@ -38,9 +38,9 @@ node --check src/spoof.js         # syntax check a file
 `tests/` covers only pure, deterministic logic that is safe to run without touching the real
 project state: `games.js`'s `normalize()`/`fold()`/`GameStore` (constructed with a temp-dir
 config, never the real `config.json`), `spoof.js`'s path/name helpers (`materialize()`,
-`writeBundle()`, `bundlePlist()`, `rebuildBundle()`, `safeName()`, `signalToken()`, `objcString()`,
-`candidates()`/`select()`), the per-platform shape of `tiers()`, and `startOne()`'s synchronous
-guards (already-running, `maxConcurrent`), `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
+`writeBundle()`, `bundlePlist()`, `rebuildBundle()`, `safeName()`, `signalToken()`, `cString()`,
+`asciiLabel()`, `linuxCompiler()`, `linuxSource()`, `candidates()`/`select()`), the per-platform
+shape of `tiers()`, and `startOne()`'s synchronous guards (already-running, `maxConcurrent`), `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
 `executablesInArguments`, `osKeysFor`), and `queue.js` (`randomBetween`/`clampSeconds`, the list
 operations, and the whole advance cycle against a stub spoofer - the queue takes its `save` as a
 constructor argument precisely so a test never writes the real `config.json`). It deliberately does **not** cover: `config.js`'s
@@ -64,6 +64,15 @@ Kill leftovers between runs — a crashed server can leave placeholders behind:
 ```powershell
 Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*data\runtime*" } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+On Linux the checks are cheap, and the window is worth checking because it is new:
+
+```bash
+for d in /proc/[0-9]*; do case "$(readlink $d/exe)" in *data/runtime*) echo "${d#/proc/} -> $(readlink $d/exe)";; esac; done
+xwininfo -root -tree | grep -i <game>        # must list the game at 480x160
+xprop -id <window id> _NET_WM_PID WM_CLASS   # the pid must be the placeholder's
+pkill -f "data/runtime"                      # clean up leftovers
 ```
 
 On macOS the equivalent checks are different, and one of them is not optional. `ps` is useless
@@ -157,6 +166,15 @@ Three constraints were each learned by breaking them. Do not "simplify" past the
    `ensureIcon()` downloads the icon once into `data/runtime/_icons/` in the background and
    returns the path immediately; the window polls for the file for ~90 s and otherwise shows
    the game's initial. Starting a game must never wait on a CDN.
+   Linux answers the same requirement with `compileLinux()`: a ~72 KB X11 program built by any
+   C compiler (`$CC`, `cc`, `gcc`, `clang`) that maps one fixed 480x160 window. It reaches Xlib
+   through `dlopen("libX11.so.6")` and `dlsym`, deliberately, so the build needs no X11 headers,
+   no dev package and no `-lX11` — a plain desktop can build it. That also means there is no
+   image decoder: the window shows the game's initial, no icon is downloaded on Linux at all,
+   and the drawn text is ASCII-folded (`asciiLabel()`) because a core X font is single byte,
+   while the real UTF-8 name goes on the window through `_NET_WM_NAME`. `compileLinux()` refuses
+   to build with no `DISPLAY`, which is what sends a headless or Wayland-without-XWayland
+   session down to the windowless tiers instead of looping on a placeholder that cannot appear.
 2. **The executable path must match the detectable entry's tail, not just its basename.**
    Entries like `_retail_/wow-64.exe` or `garenalolth/gamedata/apps/lolth/lolex.exe` need their
    directory prefix recreated under `data/runtime/<game id>/`. macOS `.app` entries get a minimal
@@ -164,12 +182,14 @@ Three constraints were each learned by breaking them. Do not "simplify" past the
 3. **The file's own identity matters.** A renamed copy of `waitfor.exe` still reports
    `OriginalFilename: waitfor.exe` / Microsoft as its publisher. The compiled placeholder embeds
    the game name in its assembly attributes and is compiled straight to its final path so
-   `OriginalFilename` is the game's executable name.
+   `OriginalFilename` is the game's executable name. The Linux window carries the equivalent for
+   a window rather than a file: `WM_CLASS` (executable name + game name), `_NET_WM_PID`, and
+   `WM_DELETE_WINDOW` so the window manager asks it to close rather than killing it.
 
 `Spoofer.tiers()` is the fallback chain, and it is not the same on every platform:
 Windows gets `compiled` → `system` (`waitfor.exe`) → `node` (a copy of the running Node binary +
-`keepalive.js`), **macOS gets `compiled` → `node`**, and Linux gets `system` (`/bin/sleep`) →
-`node`.
+`keepalive.js`), Linux gets `compiled` → `system` (`/bin/sleep`) → `node`, and **macOS gets
+`compiled` → `node`**.
 
 macOS has no `system` tier because it cannot run a copy of one of its own binaries: Apple's
 platform binaries carry a launch constraint tying them to their install path, and the code signing
@@ -177,12 +197,13 @@ monitor SIGKILLs the copy — measured anywhere from 4 s to 113 s after launch, 
 `Launch Constraint Violation` in the crash report. Do not put `system` back on darwin; it looks
 like it works for a few seconds and then always dies.
 
-`compile()` dispatches to `compileWindows()` (csc.exe) or `compileMac()` (clang + Cocoa); both
-build straight to the placeholder's final path and cache on a `PLACEHOLDER_BUILD` stamp. Only
-those two tiers own a window. Windows and macOS log a per-session warning naming the missing
-toolchain (`.NET Framework` / `xcode-select --install`) when they fall through to a windowless
-tier; Linux prints one `warnOnce()` line saying it has no windowed tier at all and that detection
-there is unverified, so a quiet quest is a known limit rather than a crash.
+`compile()` dispatches to `compileWindows()` (csc.exe), `compileMac()` (clang + Cocoa) or
+`compileLinux()` (any C compiler + Xlib through `dlopen`); all three build straight to the
+placeholder's final path and cache on a `PLACEHOLDER_BUILD` stamp. Only the `compiled` tier owns
+a window, and each platform logs a per-session warning naming what is missing when it falls
+through to a windowless one (`.NET Framework` / `xcode-select --install` / a C compiler and a
+`DISPLAY`). The generic `warnOnce()` about a platform with no windowed tier at all is now only
+reachable on something other than the three.
 
 Two rules move a session down a tier: a placeholder that throws or dies within 2 s was refused
 outright, and a placeholder that keeps being killed abnormally `MAX_TIER_DEATHS` (3) times gets
@@ -244,6 +265,12 @@ Other invariants in `spoof.js`:
   removed**: it works technically (extensions mean nothing on Unix) but a `foo.exe` process on
   macOS is impossible for a real game, so it is a trivially detectable spoofing signal. Do not
   reintroduce it. The macOS placeholder also has no window, unlike the Windows one.
+- What is verified on Linux: the compiled placeholder really maps a window on X11 (480x160,
+  named and classed after the game, `_NET_WM_PID` matching its pid), `/proc/<pid>/exe` is the
+  fake game path, and closing the window ends the session. What is **not** verified is whether
+  Discord's Linux client credits the quest — same open question as macOS. Discord's Linux
+  detection reads `/proc`, which the windowless tiers satisfy too, so the window is there
+  because every platform's detection has wanted one so far, not because Linux was proven to.
 - What is actually verified on macOS, so nobody re-debugs the wrong half. `discord_utils.node`
   imports `proc_pidpath`, `sysctl`, `proc_pidinfo`, `NSWorkspace`/`NSRunningApplication` and
   `CGWindowListCopyWindowInfo` — five ways of looking at a process — and the compiled placeholder

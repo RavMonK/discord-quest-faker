@@ -54,12 +54,12 @@ CLI override อย่าง `--port` / `--headless` มีผลกับ confi
 
 ### `spoof.js`
 
-หัวใจของโปรแกรม ~890 บรรทัด รวมซอร์ส C# ของ placeholder — อธิบายที่
-[หลักการทำงาน](TH-How-It-Works) เมธอดสำคัญ:
+หัวใจของโปรแกรม ~1,740 บรรทัด ส่วนใหญ่เป็นซอร์ส C#, Objective-C และ C ของ placeholder —
+อธิบายที่ [หลักการทำงาน](TH-How-It-Works) เมธอดสำคัญ:
 
 | เมธอด | ทำอะไร |
 |---|---|
-| `tiers()` | ลำดับ fallback: `compiled` → `system` → `node` (Unix ไม่มีชั้นแรก) |
+| `tiers()` | ลำดับ fallback: `compiled` → `system` → `node` (macOS ไม่มีชั้น `system`) |
 | `candidates(game)` | executable ของระบบนี้ ตัดตัวซ้ำ launcher ไว้ท้าย |
 | `select(game, wanted)` | แปลง `"all"` / ชื่อ / index → รายการ executable |
 | `materialize(game, exe)` | สร้าง path ไฟล์ปลอม (รวม directory prefix และ `.app` bundle) |
@@ -112,7 +112,7 @@ HTTP server ด้วย `http` เปล่า ๆ เสิร์ฟไฟล�
                  ├── กันซ้ำ + เช็ค maxConcurrent
                  ├── materialize()      → data/runtime/<id>/<exe>
                  ├── provision('compiled')
-                 │      ├── compile()   → csc.exe (cache ไว้)
+                 │      ├── compile()   → csc.exe / clang / cc (cache ไว้)
                  │      └── ensureIcon()→ โหลด background
                  ├── spawn(fakePath, args, { windowsHide: false })
                  │      → หน้าต่างเด้งขึ้น  ← สิ่งที่ Discord มองหา
