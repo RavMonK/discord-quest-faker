@@ -7,6 +7,7 @@ const configModule = require('./config');
 const { GameStore, OS_KEY } = require('./games');
 const { Spoofer } = require('./spoof');
 const { createServer, findDetectableTwin } = require('./server');
+const { QuestQueue } = require('./queue');
 const steam = require('./steam');
 
 function parseArgs(argv) {
@@ -177,6 +178,7 @@ function printHelp() {
     '  --exe all|<name>|<n>  which executable(s) of that game to run (default: the first one)',
     '  --duration <minutes>  stop automatically after N minutes (with --start)',
     '  --presets             start every preset from config.json on launch',
+    '  --queue               start the queue from config.json on launch (one game at a time)',
     '  --help                show this help',
     ''
   ].join('\n'));
@@ -217,9 +219,13 @@ async function main() {
 
   const store = new GameStore(config);
   const spoofer = new Spoofer(config);
+  const queue = new QuestQueue({ config, store, spoofer });
   normalizePresets(config, store);
 
   const shutdown = (signal) => {
+    // stop the queue first: otherwise killing its game looks like a session that ended on its
+    // own and it would try to start the next one while the process is going down
+    queue.stop(true);
     const stopped = spoofer.stopAll(true);
     if (stopped) console.log('\n[exit] stopped ' + stopped + ' fake game(s) (' + signal + ')');
     process.exit(0);
@@ -227,7 +233,10 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGHUP', () => shutdown('SIGHUP'));
-  process.on('exit', () => spoofer.stopAll(true));
+  process.on('exit', () => {
+    queue.stop(true);
+    spoofer.stopAll(true);
+  });
 
   // --- one-shot CLI modes -------------------------------------------------
   if (args.refresh) {
@@ -312,7 +321,7 @@ async function main() {
   }
 
   // --- control panel ------------------------------------------------------
-  const { server, startPreset } = createServer({ config, store, spoofer });
+  const { server, startPreset } = createServer({ config, store, spoofer, queue });
 
   try {
     await listen(server, config.port, config.host);
@@ -342,20 +351,29 @@ async function main() {
   if (config.openBrowser) openBrowser(url);
 
   // Refresh the json list in the background so the UI is usable immediately.
-  const refreshAndMaybeAutoStart = async () => {
-    await store.refresh();
+  const autoStart = () => {
     if ((args.presets || config.autoStartPresets) && config.presets.length > 0) {
       for (const preset of config.presets) {
         const result = startPreset(preset);
         if (!result.ok) console.error('[preset] ' + (preset.name || preset.id) + ': ' + result.reason);
       }
     }
+    // the queue needs the game list, so it waits for the refresh like the presets do
+    if (args.queue) {
+      const result = queue.start();
+      if (!result.ok) console.error('[queue] ' + result.reason);
+    }
+  };
+
+  const refreshAndMaybeAutoStart = async () => {
+    await store.refresh();
+    autoStart();
   };
 
   if (config.refreshOnStart) {
     refreshAndMaybeAutoStart();
-  } else if ((args.presets || config.autoStartPresets) && config.presets.length > 0) {
-    config.presets.forEach(startPreset);
+  } else {
+    autoStart();
   }
 
   if (config.refreshIntervalMinutes > 0) {

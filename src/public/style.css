@@ -193,3 +193,58 @@ main { max-width: 980px; margin: 0 auto; padding: 20px; display: flex; flex-dire
 .steam-note span { flex: 1; min-width: 200px; }
 /* display:flex above outranks the browser's [hidden] rule, so say it again here */
 .steam-note[hidden] { display: none; }
+
+/* ---------- the quest queue ---------- */
+.queue-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.queue-controls .duration input { width: 58px; }
+.queue-status {
+  margin: 0 0 10px; padding: 8px 11px; border-radius: 6px;
+  background: var(--panel-2); border-left: 3px solid var(--accent);
+  color: var(--muted); font-size: 12px; line-height: 1.5;
+}
+.queue-status[hidden] { display: none; }
+
+.queue-list { display: flex; flex-direction: column; gap: 6px; }
+.queue-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel-2); border: 1px solid transparent; border-radius: 8px; padding: 9px 12px;
+}
+.queue-row:hover { border-color: var(--line); }
+.queue-row img, .queue-row .noicon {
+  width: 32px; height: 32px; border-radius: 8px; object-fit: cover; flex: none; background: #1f2023;
+  display: grid; place-items: center; color: var(--muted); font-size: 14px; font-weight: 600;
+}
+.queue-row .info { flex: 1; min-width: 0; }
+.queue-row .name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-row .exe { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-row .actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.queue-pos {
+  flex: none; width: 20px; text-align: right;
+  color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.queue-minutes {
+  width: 58px; padding: 5px 8px; border-radius: 6px; margin-right: 2px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text); font-size: 12px;
+}
+.queue-minutes:focus { outline: none; border-color: var(--accent); }
+.queue-unit { color: var(--muted); font-size: 11px; margin-right: 6px; }
+
+/* the entry playing right now, and the one the countdown is for */
+.queue-row.live { border-color: #2f5d43; background: #23302a; }
+.queue-row.live .name::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); margin-right: 8px; vertical-align: middle; animation: pulse 1.6s infinite;
+}
+.queue-row.next { border-color: #3f4a8a; }
+.queue-row.status-done, .queue-row.status-skipped, .queue-row.status-stopped { opacity: .55; }
+.queue-row.status-failed { border-color: #5c3234; }
+.queue-row.status-failed .exe { color: #ff8b8d; }
+
+/* the + that puts a game into the queue, next to the preset star */
+.queue-add {
+  background: none; border: none; color: var(--muted);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px;
+}
+.queue-add:hover:not(:disabled) { color: var(--accent); }
+.queue-add:disabled { opacity: .35; cursor: not-allowed; }
+.exe-row .queue-add { font-size: 14px; }

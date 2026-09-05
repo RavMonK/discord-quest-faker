@@ -31,12 +31,14 @@ touching real project state:
 | `tests/games.test.js` | `normalize()`, `fold()`, `GameStore` (constructed with a temp-dir config, **never the real `config.json`**) |
 | `tests/spoof.test.js` | `materialize()`, `safeName()`, `signalToken()`, `candidates()`/`select()`, and `startOne()`'s synchronous guards (already-running, `maxConcurrent`) |
 | `tests/steam.test.js` | `parseAppId`, `normalizeExecutable`, `executablesInArguments`, `osKeysFor` |
+| `tests/queue.test.js` | `randomBetween`/`clampSeconds`, the list operations, and the whole advance cycle against a stub spoofer (**constructed with its own `save`**, so it never writes the real `config.json`) |
 
 ## What it deliberately does not cover (and why)
 
 | Area | Why |
 |---|---|
 | `config.js` → `load()` / `save()` | Both hardcode the real `config.json` path under the project root; there is no way to point them at a temp file, so testing them would risk clobbering the user's actual config |
+| Real timing of the queue's gap | The tests drive it with a `0`-second range; that a 30-70 s wait really is 30-70 s is `randomBetween`'s job, and that is tested directly |
 | Anything that spawns a real placeholder or invokes `csc.exe` | OS- and environment-dependent — exactly what the manual checks below are for |
 | `src/public/` (the frontend) | A plain browser script with no module exports and no DOM in the test process; simulating one would mean adding a dependency like jsdom, which breaks the zero-deps rule |
 

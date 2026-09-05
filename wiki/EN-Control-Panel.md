@@ -35,12 +35,51 @@ Every placeholder currently alive. Each row shows:
 The page polls the server every **5 seconds**, so anything that happens elsewhere (an auto-stop
 firing, someone closing a placeholder window, a CLI start) shows up here on its own.
 
+## Queue panel
+
+Games played **one after another**: each entry runs for its own auto-stop time, and when that
+time is up the queue waits a **random number of seconds** and starts the next one. The wait is
+drawn fresh for every gap, so a run has no fixed rhythm to spot — a queue that always started the
+next game exactly 60 s later would be a pattern in itself.
+
+Only one entry ever plays at a time. That is not a limitation: Discord maps a detected process to
+a single application id, so a second game running alongside adds nothing.
+
+| Control | What it does |
+|---|---|
+| **＋** | Adds that game to the end of the queue. It sits in the same place on every list — game rows, executable sub-rows and presets |
+| **Gap … – … sec** | The range the wait is drawn from — defaults to `30`–`70`, saved to `config.json` |
+| **Start queue** | Runs the queue from the top. Every entry goes back to *waiting* first, so it replays a finished list |
+| **Stop queue** | Stops the queue and whatever it is playing. Entries keep the status they reached |
+| **Skip** | Moves on now: stops the current game and waits out the usual gap; while already waiting, starts the next entry immediately |
+| **Clear** | Empties the queue |
+| **… min** on an entry | That entry's auto-stop time — **this is what decides when the queue moves on** |
+| **↑ / ↓** | Reorders the entry |
+| **✕** | Removes the entry (stops it first if it is the one playing) |
+
+The line above the list says what is happening right now — `Playing <game> — stops after N min,
+then a 30–70 s gap`, or `Next up: <game> in 42 s (drawn from 30–70 s)` with a live countdown.
+
+Each entry shows its status: *waiting*, *playing*, *done*, *stopped*, *skipped*, or *failed*
+(with the reason, e.g. a game id that is no longer in the list — the queue skips it and carries
+on rather than stalling).
+
+> **An entry with `0` min never ends on its own**, so the queue would wait on it forever. New
+> entries take the *Auto-stop after* value from the Games panel, so set that before pressing ＋,
+> or edit the minutes on the row afterwards. The panel says so on the status line, and the
+> terminal prints a warning when it happens.
+
+The queue is stored in `config.json` under `queue`, so it survives a restart —
+`node src/index.js --queue` starts it on launch. **Stop all** stops the queue as well, otherwise
+it would start the next game a few seconds later and look like the button had not worked.
+
 ## Presets panel
 
 Games saved in `config.json` for one-click starts.
 
 | Control | What it does |
 |---|---|
+| **＋** | Adds the preset to the queue, using the preset's own auto-stop time (disabled when the preset is not detectable) |
 | **Start** | Runs the saved executable with the saved auto-stop, if any |
 | **Stop** / **Stop all (N)** | Stops every executable of that game |
 | **Remove** | Deletes the preset from `config.json` (does not stop a running game) |
@@ -73,6 +112,7 @@ It is seeded from `defaultDurationMinutes` in `config.json`.
 | Element | Meaning |
 |---|---|
 | **☆ / ★** | Save / unsave as a preset (written to `config.json` immediately) |
+| **＋** | Add to the queue, with the auto-stop time from the box above |
 | **✕** | Delete a hand-added game from `custom-games.json` (only on `steam`-tagged rows) |
 | **Start** | Runs the first non-launcher executable |
 | **Stop** / **Stop all (N)** | Stops every executable of that game |
@@ -93,5 +133,5 @@ store URL, or a bare app id — full details in [Steam games](EN-Steam-Games).
 ## Read next
 
 - [CLI reference](EN-CLI-Reference) — everything above, without a browser
-- [Configuration](EN-Configuration) — presets, port, default auto-stop
+- [Configuration](EN-Configuration) — presets, the queue and its gap, port, default auto-stop
 - [HTTP API](EN-HTTP-API) — the endpoints this page calls

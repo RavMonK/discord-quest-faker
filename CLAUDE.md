@@ -23,6 +23,7 @@ node src/index.js --port 8080
 node src/index.js --refresh       # rewrite data/games.json from Discord, then exit
 node src/index.js --list <query>  # matching games + the executable index used by --exe
 node src/index.js --start "<game>" --exe <all|name|index> --duration <minutes>
+node src/index.js --queue          # play config.json's queue, one game at a time
 node src/index.js --add-steam <steam app id or URL> [--force]
 node src/index.js --help
 ```
@@ -39,8 +40,10 @@ project state: `games.js`'s `normalize()`/`fold()`/`GameStore` (constructed with
 config, never the real `config.json`), `spoof.js`'s path/name helpers (`materialize()`,
 `writeBundle()`, `bundlePlist()`, `rebuildBundle()`, `safeName()`, `signalToken()`, `objcString()`,
 `candidates()`/`select()`), the per-platform shape of `tiers()`, and `startOne()`'s synchronous
-guards (already-running, `maxConcurrent`), and `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
-`executablesInArguments`, `osKeysFor`). It deliberately does **not** cover: `config.js`'s
+guards (already-running, `maxConcurrent`), `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
+`executablesInArguments`, `osKeysFor`), and `queue.js` (`randomBetween`/`clampSeconds`, the list
+operations, and the whole advance cycle against a stub spoofer - the queue takes its `save` as a
+constructor argument precisely so a test never writes the real `config.json`). It deliberately does **not** cover: `config.js`'s
 `load()`/`save()` (they hardcode the real `config.json` path under the project root — there is no
 way to point them at a temp file, so testing them would risk clobbering the user's actual config),
 anything that spawns a real placeholder or invokes `csc.exe` (OS/environment-dependent, exactly
@@ -102,7 +105,7 @@ there is the OS refusing to run the file at all.
 
 ## Architecture
 
-Five modules under `src/`, wired together in `index.js`:
+Six modules under `src/`, wired together in `index.js`:
 
 - **config.js** — loads/saves `config.json`. Two rules encoded here: BOM-prefixed JSON is
   tolerated (Windows editors write it), and a file that fails to parse is never overwritten
@@ -116,9 +119,21 @@ Five modules under `src/`, wired together in `index.js`:
 - **steam.js** — resolves a Steam app id/URL to the same game shape via `api.steamcmd.net`
   (steamdb.info itself returns 403 to automated requests; the appinfo data is the same).
 - **spoof.js** — the actual spoofing. See below.
+- **queue.js** — `QuestQueue` plays a list of games one at a time: it starts an entry with that
+  entry's own auto-stop time and, when the session ends, waits a random number of seconds before
+  the next one. Three things hold it up. `Spoofer.onSessionEnd()` is the only way to learn that a
+  session ended on its own, and the queue reacts only to the session key it started, so a game
+  someone starts by hand never moves it. The gap is drawn per gap from `crypto.randomInt` - a
+  fixed wait, or one number reused for a whole run, is exactly the pattern the range exists to
+  avoid. And `stop()` clears `running` *before* killing the placeholder, because the kill fires
+  that same callback and the queue would otherwise read its own Stop as "the game finished" and
+  start the next one. Shutdown stops the queue first and with the **synchronous** kill, since an
+  async `taskkill` never runs once `process.exit` is on its way.
 - **server.js** — zero-dependency `http` server, static files from `src/public/`, JSON API under
   `/api/`: `state`, `games`, `custom` (POST/DELETE), `refresh`, `start`, `stop`, `stop-all`,
-  `presets` (POST/DELETE).
+  `presets` (POST/DELETE), and `queue` (POST/PATCH/DELETE) with `queue/move`, `queue/start`,
+  `queue/stop`, `queue/skip`, `queue/settings`. `stop-all` stops the queue too - otherwise it
+  starts the next game seconds later and the button looks broken.
 
 The frontend (`src/public/`) is plain HTML/CSS/JS, no framework or build.
 
@@ -216,6 +231,10 @@ Other invariants in `spoof.js`:
 - Discord maps a detected process to one application id, so running several executables of the
   same game gives no extra quest progress — the UI deliberately starts a single one, and a
   preset stores one executable name (never "all"). There is no start-all control anywhere.
+- An entry with no auto-stop time (`durationMinutes` 0, and `defaultDurationMinutes` 0 too)
+  never ends on its own, so the queue waits on it forever. That is allowed - a session with no
+  timer is a legitimate thing to run - but it is warned about in the terminal and on the panel's
+  status line rather than silently looking hung.
 - Every endpoint that returns presets must go through `describePresets()`: config.json holds
   only id/name/executable, and handing those raw entries to the UI made `renderPresets` throw
   mid-render, blanking the panel until the next poll.

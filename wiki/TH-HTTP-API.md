@@ -39,6 +39,14 @@
                  "executables": [ { "name": "overwatch.exe", "os": "win32", "isLauncher": false } ],
                  "durationMinutes": 60, "icon": "...", "iconUrl": null,
                  "custom": false, "missing": false } ],
+  "queue": { "running": true, "currentUid": "q1", "currentKey": "356875221078245376::overwatch.exe",
+             "nextUid": "q2", "nextStartAt": 1756728100000,
+             "delay": { "min": 30, "max": 70 }, "defaultDurationMinutes": 0,
+             "items": [ { "uid": "q1", "id": "356875221078245376", "name": "Overwatch",
+                          "icon": "...", "iconUrl": null, "executable": "overwatch.exe",
+                          "durationMinutes": 20, "effectiveDurationMinutes": 20,
+                          "status": "running", "reason": null,
+                          "startedAt": 1756728000000, "missing": false } ] },
   "settings": { "defaultDurationMinutes": 0, "maxConcurrent": 12,
                 "refreshIntervalMinutes": 720, "configFile": "config.json" }
 }
@@ -94,7 +102,10 @@
 
 ## `POST /api/stop-all`
 
-ไม่ต้องมี body → `{ ok: true, stopped: <จำนวน>, running: [] }`
+ไม่ต้องส่ง body → `{ ok: true, stopped: <จำนวน>, running: [], queue: {...} }`
+
+หยุด **คิว** ให้ด้วย เพราะถ้าปล่อยคิวไว้ อีกไม่กี่วินาทีมันจะเด้งเกมตัวถัดไปขึ้นมา
+เหมือนกดปุ่มไม่ติด
 
 ## `POST /api/refresh`
 
@@ -124,6 +135,83 @@
 หยุดโปรเซสของเกมนั้นก่อน แล้วลบออกจาก `custom-games.json`
 `200` → `{ ok: true, games, running }` · `404` → ไม่ใช่เกมที่เพิ่มเอง
 
+## endpoint ของคิว
+
+คิวเล่นทีละรายการ แล้วเริ่มตัวถัดไปหลังรอแบบสุ่ม **ทุก endpoint ในหมวดนี้ตอบกลับด้วยคิวทั้งก้อน**
+(`{ queue: {...} }`) หน้าตาเหมือนใน `/api/state` ด้านบน หน้าเว็บจึงไม่ต้องดึง state ซ้ำหลังสั่งงาน
+
+`uid` เป็นตัวอ้างอิงชั่วคราว (`q1`, `q2`, …) **ไม่คงที่ข้ามการเปิดโปรแกรม** — รายการที่เก็บใน
+`config.json` จะได้ `uid` ใหม่ทุกครั้งที่เปิด ให้อ้างอิงจาก `uid` ในคำตอบล่าสุดเสมอ
+
+`status` เป็นหนึ่งใน `pending` · `running` · `done` · `stopped` · `skipped` · `failed`
+(ถ้า fail รายละเอียดอยู่ใน `reason`) ส่วน `nextStartAt` เป็น epoch ms ของเวลาที่รายการถัดไปจะเริ่ม
+ซึ่งคือค่าที่หน้าเว็บเอาไปนับถอยหลัง
+
+### `POST /api/queue`
+
+```json
+{ "id": "356875221078245376", "executable": "overwatch.exe", "durationMinutes": 20 }
+```
+
+เพิ่มรายการต่อท้ายคิว `executable` รับชื่อไฟล์หรือเลข index และจะถูกแปลงเป็น executable
+**ตัวเดียว** เสมอ ส่วน `durationMinutes` คือตัวกำหนดว่าคิวจะขยับเมื่อไหร่ (`0` = ใช้
+`defaultDurationMinutes` แทน และถ้าค่านั้นเป็น `0` ด้วย คิวจะค้างรอรายการนี้)
+
+`200` → `{ ok: true, item, queue }` · `404` → หาเกมไม่เจอ
+
+### `PATCH /api/queue`
+
+```json
+{ "uid": "q2", "durationMinutes": 25 }
+```
+
+แก้รายการเดียว (`durationMinutes`, `executable`) `200` → `{ ok: true, queue }` · `404` →
+ไม่มีรายการนั้น
+
+### `DELETE /api/queue`
+
+```json
+{ "uid": "q2" }     // ลบรายการเดียว (ถ้ากำลังรันอยู่จะหยุดให้ก่อน)
+{ "all": true }     // หยุดคิวและล้างทั้งหมด
+```
+
+`200` → `{ ok: true, queue, running }` · `404` → ไม่มีรายการนั้น
+
+### `POST /api/queue/move`
+
+```json
+{ "uid": "q2", "direction": "up" }
+```
+
+`direction` เป็น `"up"` หรือ `"down"` — เลื่อนเกินหัว/ท้ายลิสต์ไม่เกิดอะไรขึ้น แต่ยังตอบ `200`
+
+### `POST /api/queue/start`
+
+ไม่ต้องส่ง body ระบบจะตั้งทุกรายการกลับเป็น `pending` แล้วเริ่มตัวแรก คิวที่จบไปแล้วจึงเล่นซ้ำได้
+ไม่ใช่กดแล้วเงียบ
+
+`200` → `{ ok: true, queue, running }` · `409` → คิวรันอยู่แล้ว หรือคิวว่าง
+
+### `POST /api/queue/stop`
+
+ไม่ต้องส่ง body หยุดคิวและเกมที่รันอยู่ ตอบ `200` เสมอ — `ok` เป็น `false` ถ้าคิวไม่ได้รันอยู่
+(`POST /api/stop-all` ก็หยุดคิวให้ด้วย)
+
+### `POST /api/queue/skip`
+
+ไม่ต้องส่ง body ถ้ามีเกมรันอยู่: หยุดเกมนั้นแล้วรอตามช่วงสุ่มปกติ ถ้ากำลังรออยู่: เริ่มตัวถัดไปทันที
+
+`200` → `{ ok: true, queue, running }` · `409` → คิวไม่ได้รันอยู่
+
+### `POST /api/queue/settings`
+
+```json
+{ "minSeconds": 30, "maxSeconds": 70 }
+```
+
+ตั้งช่วงเวลารอ และบันทึกลง `config.json` ค่าถูกบีบให้อยู่ในช่วง `0`–`3600` และถ้าใส่กลับด้าน
+ระบบจะสลับให้ `200` → `{ ok: true, delay: { min, max }, queue }`
+
 ## `POST /api/presets`
 
 ```json
@@ -151,6 +239,8 @@ curl http://127.0.0.1:5011/api/state
 curl "http://127.0.0.1:5011/api/games?q=overwatch&limit=5"
 curl -X POST http://127.0.0.1:5011/api/start -H "Content-Type: application/json" -d '{"id":"356875221078245376"}'
 curl -X POST http://127.0.0.1:5011/api/stop-all
+curl -X POST http://127.0.0.1:5011/api/queue -H "Content-Type: application/json" -d '{"id":"356875221078245376","durationMinutes":20}'
+curl -X POST http://127.0.0.1:5011/api/queue/start
 ```
 
 ## อ่านต่อ

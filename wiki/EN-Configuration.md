@@ -23,6 +23,11 @@ state, not source.
   "presets": [
     { "id": "356875221078245376", "name": "Overwatch", "executable": "overwatch.exe", "durationMinutes": 60 }
   ],
+  "queue": [
+    { "id": "356875221078245376", "name": "Overwatch", "executable": "overwatch.exe", "durationMinutes": 20 }
+  ],
+  "queueDelayMinSeconds": 30,
+  "queueDelayMaxSeconds": 70,
   "autoStartPresets": false
 }
 ```
@@ -43,6 +48,9 @@ state, not source.
 | `defaultDurationMinutes` | `0` | Default auto-stop (`0` = run until stopped) |
 | `maxConcurrent` | `12` | Maximum simultaneous placeholders (counted per executable) |
 | `presets` | `[]` | One-click game list |
+| `queue` | `[]` | Games played one after another — see below |
+| `queueDelayMinSeconds` | `30` | Shortest wait between two queue entries |
+| `queueDelayMaxSeconds` | `70` | Longest wait between two queue entries |
 | `autoStartPresets` | `false` | Start every preset on launch (same as `--presets`) |
 
 All paths are resolved from the repo root.
@@ -68,6 +76,29 @@ A preset looks like this:
   terminal saying so — running several executables gives no extra progress anyway.
 - If `id` is not in the current list, the panel shows a disabled **Not detectable** button.
 
+## The queue
+
+The queue plays its entries **one at a time**, each for its own `durationMinutes`, and waits a
+random number of seconds in between. An entry has the same shape as a preset:
+
+```json
+{ "id": "356875221078245376", "name": "Overwatch", "executable": "overwatch.exe", "durationMinutes": 20 }
+```
+
+| Field | Accepts |
+|---|---|
+| `id` | A Discord application id, or `steam:<appid>` |
+| `name` | The label shown in the panel — also used to resolve the game if `id` misses |
+| `executable` | One executable name (the queue always runs a single one) |
+| `durationMinutes` | How long this entry plays. **`0` falls back to `defaultDurationMinutes`, and if that is `0` too the queue waits on the entry until you stop or skip it** |
+
+`queueDelayMinSeconds` / `queueDelayMaxSeconds` bound the gap between one entry ending and the
+next starting. A fresh number is drawn from that range for **every** gap — a fixed wait would be
+a pattern of its own, which is the thing the range exists to avoid. Both are clamped to
+`0`–`3600`, and a reversed pair (min above max) is read the right way round rather than refused.
+
+Start the queue from the panel, or on launch with `node src/index.js --queue`.
+
 ## File handling rules (the important part)
 
 `src/config.js` encodes two deliberate rules:
@@ -90,7 +121,8 @@ temporary port into `config.json`.
 The panel can only ever write these keys:
 
 ```
-presets  ·  autoStartPresets  ·  defaultDurationMinutes  ·  maxConcurrent
+presets  ·  queue  ·  queueDelayMinSeconds  ·  queueDelayMaxSeconds
+autoStartPresets  ·  defaultDurationMinutes  ·  maxConcurrent
 ```
 
 Everything else keeps its on-disk value, and the file is written atomically (`.tmp` + rename).
@@ -104,7 +136,7 @@ data/runtime/            the placeholder binaries — safe to delete while nothi
 data/runtime/_build/     the C# source and the stamp files that decide on a rebuild
 data/runtime/_icons/     downloaded game icons
 data/runtime/keepalive.js the script used by the node-tier placeholder
-config.json              your settings and presets
+config.json              your settings, presets and queue
 ```
 
 `data/` and `config.json` are gitignored. Every placeholder is shut down when the tool exits.
