@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.4.0 - 2026-09-05
+
+A windowed placeholder on Linux: the `compiled` tier now exists on all three platforms.
+
+### Added
+
+- Linux `compiled` tier: `compileLinux()` builds a ~72 KB X11 placeholder with any C compiler (`$CC`, `cc`, `gcc` or `clang`) and maps a real 480x160 window showing the game, the executable being impersonated, the elapsed clock and the auto-stop countdown. Closing the window ends the session, as on Windows and macOS.
+- Xlib is reached through `dlopen`/`dlsym`, so the build needs no X11 headers, no development package and no `-lX11` - only a compiler and a `DISPLAY`.
+- The window carries `WM_CLASS`, `_NET_WM_PID` and `WM_DELETE_WINDOW`, and its title goes through `_NET_WM_NAME` as UTF-8; the drawn text is ASCII-folded because a core X font is single byte.
+- The Linux tier chain is now `compiled` -> `system` -> `node`. With no compiler, or no display to map a window on, it falls back as before and the warning names the missing half.
+
+### Changed
+
+- No icon is downloaded on Linux: that window cannot decode a PNG without a library, so it draws the game's initial instead of fetching bytes nobody looks at.
+- `PLACEHOLDER_BUILD` bumped to 4, which rebuilds every cached placeholder once.
+- `Spoofer.objcString()` is now `Spoofer.cString()`; the C and Objective-C sources escape string literals identically.
+- Thai and English documentation updated for the Linux window, its requirements and how to verify it.
+
+### Validation
+
+- 82 tests, including the generated Linux source, `linuxCompiler()`, `asciiLabel()` and a real compiled placeholder that is asserted to own an X window through `xwininfo`.
+- Verified on Linux ARM64 (Kali, X11) with Node.js 22.23.2: window mapped and named, `/proc/<pid>/exe` at the fake game path, auto-stop and window-close both ending the session cleanly.
+- With `DISPLAY` unset the compiled tier refuses to build and the session drops to `system`, which the suite tests directly.
+- Whether Discord's Linux client credits a quest for it is still unconfirmed, exactly as on macOS.
+
+Full changelog: [v1.3.0...v1.4.0](https://github.com/RavMonK/discord-quest-faker/compare/v1.3.0...v1.4.0)
+
 ## 1.3.0 - 2026-09-05
 
 Security hardening for the local control panel and generated executables, with Linux regression coverage.

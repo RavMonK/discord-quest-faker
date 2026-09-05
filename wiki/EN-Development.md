@@ -29,7 +29,7 @@ writes the real project config or game cache:
 | File | Covers |
 |---|---|
 | `tests/games.test.js` | `normalize()`, `fold()`, `GameStore` (constructed with a temp-dir config, **never the real `config.json`**) |
-| `tests/spoof.test.js` | `materialize()`, `safeName()`, `signalToken()`, `candidates()`/`select()`, and `startOne()`'s synchronous guards (already-running, `maxConcurrent`) |
+| `tests/spoof.test.js` | `materialize()`, `safeName()`, `signalToken()`, `candidates()`/`select()`, `cString()`/`asciiLabel()`, `linuxCompiler()`, the generated Linux source, and `startOne()`'s synchronous guards (already-running, `maxConcurrent`) |
 | `tests/steam.test.js` | `parseAppId`, `normalizeExecutable`, `executablesInArguments`, `osKeysFor` |
 | `tests/queue.test.js` | `randomBetween`/`clampSeconds`, the list operations, and the whole advance cycle against a stub spoofer (**constructed with its own `save`**, so it never writes the real `config.json`) |
 
@@ -38,7 +38,7 @@ writes the real project config or game cache:
 - `tests/server.test.js`: real loopback HTTP requests for Host/Origin/token checks, malformed requests, pagination and queue persistence.
 - `tests/security-paths.test.js`: traversal, symlinks, same-size executable tampering, failed replacements and compiled-cache integrity.
 - `tests/frontend-api.test.js`: token bootstrap and recovery after server restart, using the actual UI helper.
-- `tests/linux.test.js`: real system and Node placeholders, `/proc/<pid>/exe`, duplicate-start rejection and auto-stop. Skipped outside Linux.
+- `tests/linux.test.js`: real system, Node and compiled placeholders, `/proc/<pid>/exe`, duplicate-start rejection and auto-stop. Skipped outside Linux; the compiled one also needs a compiler and a `DISPLAY`, and asserts the X window through `xwininfo` when it is installed.
 
 Use the latest patch of Node.js 22, 24 or 26 (24 LTS recommended). With Docker running, from the repository root:
 
@@ -58,7 +58,7 @@ The source mount is read-only; test data stays in temporary container directorie
 |---|---|
 | `config.js` → `load()` / `save()` | Both hardcode the real `config.json` path under the project root; there is no way to point them at a temp file, so testing them would risk clobbering the user's actual config |
 | Real timing of the queue's gap | The tests drive it with a `0`-second range; that a 30-70 s wait really is 30-70 s is `randomBetween`'s job, and that is tested directly |
-| Windows/macOS GUI placeholders and compilers | Require native OS checks; Linux process tests run automatically on Linux |
+| Windows/macOS GUI placeholders and compilers | Require native OS checks; on Linux both the process tests and the X11 window test run automatically |
 | Frontend DOM rendering | The API helper is tested using `node:vm`; rendering still needs a browser |
 
 Behaviour beyond that boundary is **verified against the OS, not through unit tests**.
