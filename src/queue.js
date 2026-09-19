@@ -54,7 +54,22 @@ class QuestQueue {
     this.nextStartAt = 0;
 
     // The only way to learn that a session ended on its own (auto-stop timer, closed window).
-    spoofer.onSessionEnd((info) => this.onSessionEnd(info));
+    // Kept so destroy() can take it back: onSessionEnd alone has no inverse.
+    this.spooferEndListener = (info) => this.onSessionEnd(info);
+    spoofer.onSessionEnd(this.spooferEndListener);
+  }
+
+  /**
+   * Detach from the spoofer. A QuestQueue is created once per process today, so this changes
+   * nothing observable - it exists because a listener nobody can remove makes the queue hold
+   * on to (and be woken by) a spoofer it no longer belongs to, e.g. in tests that build a
+   * fresh pair per case.
+   */
+  destroy() {
+    if (this.spooferEndListener && typeof this.spoofer.offSessionEnd === 'function') {
+      this.spoofer.offSessionEnd(this.spooferEndListener);
+      this.spooferEndListener = null;
+    }
   }
 
   /* ---------------- the list ---------------- */

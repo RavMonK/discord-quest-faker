@@ -1,4 +1,4 @@
-name: Linux tests
+name: Tests
 
 on:
   pull_request:
@@ -10,13 +10,14 @@ permissions:
 
 jobs:
   test:
-    name: Node ${{ matrix.node }} / Linux
-    runs-on: ubuntu-latest
+    name: Node ${{ matrix.node }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         node: [22, 24, 26]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -24,7 +25,9 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ matrix.node }}
-      - name: Tests, including real Linux placeholder processes
+      # OS-specific tests skip themselves: the Linux placeholder tests report
+      # "requires Linux" and the symlink tests report "requires POSIX symlinks".
+      - name: Tests
         run: npm test
       - name: CLI smoke check
         run: node src/index.js --help

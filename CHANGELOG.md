@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.5.0 - 2026-09-19
+
+Quality pass across the whole project: accessibility and mobile support for the control panel, a
+wider test net, and a handful of correctness fixes in the spoofer. No new dependencies.
+
+### Fixed
+
+- README and wiki badges claimed Node.js >= 18 while `engines` requires 22/24/26 and older majors
+  are rejected at startup - the badges now say so.
+- A superseded launch inside `startOne()` could overwrite `session.launchedAt` while the previous
+  child's exit handler was still going to read it, misreporting how long that child had lived. Each
+  launch now keeps its own timestamp.
+- `cscString()` duplicated `cString()`'s escaping; it now shares it.
+- Game icon downloads gave up after 8 s, too soon for a large image on a slow link - now 30 s.
+
+### Added
+
+- Control panel accessibility: every icon-only button (star, remove, expander, queue controls) has
+  an `aria-label`, and every interactive element shows a `:focus-visible` ring. The muted text
+  colour now meets WCAG AA contrast on the panel background.
+- Mobile layout: below 640 px the panels stack, the Steam row goes vertical and buttons get 44 px
+  touch targets.
+- The toast slides and fades instead of popping; running timers always render `HH:MM:SS`; the game
+  list shows a loading pulse while it refreshes; `/` focuses the search box and `Escape` clears it;
+  a footer link brings the disclaimer banner back after it was dismissed.
+- `Spoofer.offSessionEnd()` removes a session-end listener.
+
+### Changed
+
+- The compiled-placeholder cache is capped at 500 entries instead of growing without bound.
+- Empty states tell the user what to do next, and the preset empty state no longer uses `innerHTML`.
+- Getting Started (TH/EN) now says up front that Discord's list is overwhelmingly Windows and that
+  quest credit on macOS/Linux is still unconfirmed.
+
+### Testing
+
+- 92 tests (87 run, 5 skipped as OS-specific): new CLI smoke tests, a real HTTP server smoke suite
+  (static files, token flow, Host/Origin/Content-Type and pagination validation), a concurrent
+  game-list refresh test, explicit skip reasons, and a 30 s test timeout.
+- GitHub Actions now also runs the suite on Windows and macOS, not just Linux.
+
+Full changelog: [v1.4.0...v1.5.0](https://github.com/RavMonK/discord-quest-faker/compare/v1.4.0...v1.5.0)
+
 ## 1.4.0 - 2026-09-05
 
 A windowed placeholder on Linux: the `compiled` tier now exists on all three platforms.
@@ -20,7 +63,7 @@ A windowed placeholder on Linux: the `compiled` tier now exists on all three pla
 
 ### Validation
 
-- 82 tests, including the generated Linux source, `linuxCompiler()`, `asciiLabel()` and a real compiled placeholder that is asserted to own an X window through `xwininfo`.
+- 82 tests (77 run, 5 skipped as OS-specific), including the generated Linux source, `linuxCompiler()`, `asciiLabel()` and a real compiled placeholder that is asserted to own an X window through `xwininfo`.
 - Verified on Linux ARM64 (Kali, X11) with Node.js 22.23.2: window mapped and named, `/proc/<pid>/exe` at the fake game path, auto-stop and window-close both ending the session cleanly.
 - With `DISPLAY` unset the compiled tier refuses to build and the session drops to `system`, which the suite tests directly.
 - Whether Discord's Linux client credits a quest for it is still unconfirmed, exactly as on macOS.

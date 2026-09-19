@@ -29,7 +29,7 @@ test('paths: rejects dot IDs and traversal before creating files outside runtime
   assert.equal(Spoofer.gameDirectory('custom-game'), 'custom-game');
 });
 
-test('paths: rejects symlinked game directories and bundle contents', { skip: process.platform === 'win32' }, t => {
+test('paths: rejects symlinked game directories and bundle contents', { skip: process.platform === 'win32' ? 'requires POSIX symlinks (Windows needs privileges to create them)' : false }, t => {
   const { root, spoofer } = fixture(t);
   const outside = path.join(root, 'outside');
   fs.mkdirSync(outside);
@@ -59,7 +59,7 @@ test('binary: replaces a same-size altered file, reuses verified bytes and never
   assert.equal(fs.readFileSync(source, 'utf8'), 'TRUSTED');
 });
 
-test('binary: retires old hardlinks and rejects a symlink target', { skip: process.platform === 'win32' }, t => {
+test('binary: retires old hardlinks and rejects a symlink target', { skip: process.platform === 'win32' ? 'requires POSIX symlinks (Windows needs privileges to create them)' : false }, t => {
   const { root, spoofer } = fixture(t);
   const source = path.join(root, 'source');
   fs.writeFileSync(source, 'TRUSTED');

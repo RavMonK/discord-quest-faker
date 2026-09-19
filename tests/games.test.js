@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const { GameStore, normalize, fold } = require('../src/games');
@@ -120,4 +121,39 @@ test('GameStore: search filters by current OS and ranks exact matches first', ()
 
   const macResult = store.search('', { osKey: 'win32' });
   assert.ok(!macResult.items.some((g) => g.id === '3')); // darwin-only game hidden on win32
+});
+
+test('GameStore: two refreshes at once resolve to one fetch and one refusal', async (t) => {
+  // A stand-in for the Discord API that answers slowly on purpose, so the second refresh
+  // call is guaranteed to land while the first one is still waiting for its response.
+  const payload = JSON.stringify([{ id: '9', name: 'Slow Game', executables: [{ name: 'slow.exe' }] }]);
+  let requests = 0;
+  const api = http.createServer((req, res) => {
+    requests += 1;
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(payload);
+    }, 100);
+  });
+  await new Promise((resolve) => api.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => api.close(resolve)));
+
+  const config = tmpConfig();
+  config.apiUrl = 'http://127.0.0.1:' + api.address().port + '/detectable';
+  const store = new GameStore(config);
+
+  // refresh() sets `refreshing` synchronously before its first await, so the overlapping
+  // second call takes the refusal branch deterministically - no race in the assertion.
+  const results = await Promise.all([store.refresh(), store.refresh()]);
+
+  const wins = results.filter((r) => r.ok);
+  const refused = results.filter((r) => !r.ok);
+  assert.equal(wins.length, 1);
+  assert.equal(refused.length, 1);
+  assert.equal(refused[0].reason, 'already refreshing');
+  assert.equal(requests, 1, 'the refused call must not fire a second request');
+  assert.equal(store.refreshing, false);
+  assert.equal(store.games.length, 1);
+  assert.equal(store.games[0].name, 'Slow Game');
+  assert.equal(store.source, 'api');
 });

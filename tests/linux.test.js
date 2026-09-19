@@ -29,7 +29,7 @@ function fixture(t) {
   return spoofer;
 }
 
-test('Linux: system placeholder runs at its game path and stops on request', { skip: process.platform !== 'linux', timeout: 10000 }, async t => {
+test('Linux: system placeholder runs at its game path and stops on request', { skip: process.platform !== 'linux' ? 'requires Linux' : false, timeout: 10000 }, async t => {
   withoutDisplay(t); // no display means no windowed tier, which is what puts `system` first
   const spoofer = fixture(t);
   const game = { id: 'linux-smoke', name: 'Linux smoke', executables: [{ name: 'bin/audit-game', os: 'linux' }] };
@@ -49,7 +49,7 @@ test('Linux: system placeholder runs at its game path and stops on request', { s
   assert.equal(fs.existsSync('/proc/' + info.pid), false);
 });
 
-test('Linux: duration timer stops a real placeholder', { skip: process.platform !== 'linux', timeout: 10000 }, async t => {
+test('Linux: duration timer stops a real placeholder', { skip: process.platform !== 'linux' ? 'requires Linux' : false, timeout: 10000 }, async t => {
   withoutDisplay(t); // a test suite should not flash a window on screen for a timer check
   const spoofer = fixture(t);
   const game = { id: 'linux-timer', name: 'Linux timer', executables: [{ name: 'timer-game', os: 'linux' }] };
@@ -62,7 +62,7 @@ test('Linux: duration timer stops a real placeholder', { skip: process.platform 
   assert.equal(fs.existsSync('/proc/' + info.pid), false);
 });
 
-test('Linux: Node fallback replaces tampered bytes and launches keepalive', { skip: process.platform !== 'linux', timeout: 10000 }, async t => {
+test('Linux: Node fallback replaces tampered bytes and launches keepalive', { skip: process.platform !== 'linux' ? 'requires Linux' : false, timeout: 10000 }, async t => {
   const spoofer = fixture(t);
   const game = { id: 'linux-node', name: 'Node fallback' };
   const exe = { name: 'node-game', os: 'linux' };
@@ -87,7 +87,7 @@ test('Linux: Node fallback replaces tampered bytes and launches keepalive', { sk
   await exited;
 });
 
-test('Linux: no display means no compiled placeholder, rather than one that cannot appear', { skip: process.platform !== 'linux' }, t => {
+test('Linux: no display means no compiled placeholder, rather than one that cannot appear', { skip: process.platform !== 'linux' ? 'requires Linux' : false }, t => {
   withoutDisplay(t);
   const spoofer = fixture(t);
   const game = { id: 'linux-headless', name: 'Headless' };
@@ -96,7 +96,7 @@ test('Linux: no display means no compiled placeholder, rather than one that cann
   assert.equal(fs.existsSync(target), false); // nothing half-built was left behind
 });
 
-test('Linux: the compiled placeholder owns a real X window at the game path', { skip: !windowed, timeout: 60000 }, async t => {
+test('Linux: the compiled placeholder owns a real X window at the game path', { skip: !windowed ? 'requires Linux with $DISPLAY and a C compiler' : false, timeout: 60000 }, async t => {
   const spoofer = fixture(t);
   const game = { id: 'linux-window', name: 'Window smoke', executables: [{ name: 'bin/window-game', os: 'linux' }] };
   const result = spoofer.start(game, { durationMinutes: 0 });
