@@ -32,6 +32,15 @@ const PLACEHOLDER_BUILD = 4;
 // Game icons come from Discord's and Steam's CDN. Anything much larger than this is not one.
 const MAX_ICON_BYTES = 4 * 1024 * 1024;
 
+// One in-process stamp per compiled placeholder is a handful of bytes, but the map would still
+// grow with every game ever spoofed in a long-lived process. Past this point the oldest stamp
+// is dropped instead: the worst that happens is a rebuild of a placeholder not used lately.
+const MAX_COMPILED_STAMPS = 500;
+
+// A CDN icon is a few kilobytes over HTTPS, but a slow connection or a redirect chain can take
+// a while to even answer. Give up only when the download is plainly stuck, not merely slow.
+const DOWNLOAD_TIMEOUT_MS = 30000;
+
 /**
  * Download `url` to `target`, following redirects.
  * The bytes land under a temporary name and are renamed into place, because the placeholder
@@ -75,7 +84,7 @@ function downloadFile(url, target, redirects) {
       res.on('error', reject);
     });
 
-    request.setTimeout(8000, () => request.destroy(new Error('timed out')));
+    request.setTimeout(DOWNLOAD_TIMEOUT_MS, () => request.destroy(new Error('timed out')));
     request.on('error', reject);
   });
 }
@@ -221,13 +230,13 @@ class Spoofer {
     return fs.existsSync('/bin/sleep') ? { source: '/bin/sleep', args: () => ['999999'] } : null;
   }
 
-  /** C# string literal contents - the game name is arbitrary text from an API. */
+  /**
+   * C# string literal contents - the game name is arbitrary text from an API.
+   * Same escaping as cString, plus a length cap: this one ends up in a window title bar, and a
+   * name the API padded to hundreds of characters should not stretch the placeholder window.
+   */
   static csharpString(text) {
-    return String(text || 'Game')
-      .replace(/[\r\n\t]+/g, ' ')
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .slice(0, 120);
+    return Spoofer.cString(text).slice(0, 120);
   }
 
   /** Build a windowed placeholder at `target` with whichever compiler this platform ships. */
@@ -1210,6 +1219,12 @@ class Spoofer {
   }
 
   rememberCompiled(target, name) {
+    // Map iteration order is insertion order, so the first key is the oldest stamp. An evicted
+    // entry only costs a rebuild the next time that game starts, never a wrong trust decision:
+    // compiledMatches() simply returns false for a stamp that is no longer there.
+    if (this.compiledCache.size >= MAX_COMPILED_STAMPS && !this.compiledCache.has(target)) {
+      this.compiledCache.delete(this.compiledCache.keys().next().value);
+    }
     this.compiledCache.set(target, { name, build: PLACEHOLDER_BUILD, hash: Spoofer.fileHash(target) });
   }
 
@@ -1541,7 +1556,13 @@ class Spoofer {
         session.pid = child.pid;
         session.child = child;
         session.tier = i;
-        session.launchedAt = Date.now();
+        // Captured per launch, not just stored on the session: a retry writes
+        // session.launchedAt again for the replacement child, and when several events of the
+        // old child are still queued the handler must never measure against the replacement's
+        // start time - a bogus aliveMs misjudges whether the death was an instant refusal.
+        // `session.launchedAt` is kept in sync only as a record for describe().
+        const launchedAt = Date.now();
+        session.launchedAt = launchedAt;
 
         child.on('error', (err) => {
           if (session.child !== child || session.stopping) return;
@@ -1556,7 +1577,7 @@ class Spoofer {
             return;
           }
 
-          const aliveMs = Date.now() - session.launchedAt;
+          const aliveMs = Date.now() - launchedAt;
           // code === null means a signal ended it, which is no cleaner than a non-zero code.
           const abnormal = code !== 0;
 
@@ -1666,6 +1687,16 @@ class Spoofer {
    */
   onSessionEnd(fn) {
     if (typeof fn === 'function') this.endListeners.push(fn);
+  }
+
+  /**
+   * Undo onSessionEnd. Today only one listener (the queue) ever registers for the life of the
+   * process, but a subscription with no way to unsubscribe is a leak the moment anything
+   * short-lived - a test, a future UI session - adds one.
+   */
+  offSessionEnd(fn) {
+    const index = this.endListeners.indexOf(fn);
+    if (index !== -1) this.endListeners.splice(index, 1);
   }
 
   /**

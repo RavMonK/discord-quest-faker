@@ -4,6 +4,11 @@
 
 ---
 
+> **Note:** Discord's detectable-game list is overwhelmingly Windows (~10,400 win32 games
+> versus ~62 on macOS and ~8 on Linux). On macOS/Linux you will therefore see very few games
+> to pick from, and while placeholder detection there is proven, whether Discord actually
+> credits a quest on those platforms is still unconfirmed.
+
 ## 1. Requirements
 
 | You need | Notes |

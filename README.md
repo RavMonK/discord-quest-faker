@@ -3,7 +3,7 @@
 **ภาษาไทย** · [English](README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node.js 22 | 24 | 26](https://img.shields.io/badge/Node.js-22_%7C_24_%7C_26-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/RavMonK/discord-quest-faker/wiki/TH-Platform-Notes)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](package.json)
 [![Wiki: ไทย | English](https://img.shields.io/badge/wiki-ไทย%20%7C%20English-blue)](https://github.com/RavMonK/discord-quest-faker/wiki)

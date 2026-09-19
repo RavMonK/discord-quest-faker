@@ -62,10 +62,13 @@ function toast(message, kind) {
   const el = $("toast");
   el.textContent = message;
   el.className = "toast" + (kind ? " " + kind : "");
-  el.hidden = false;
+  // class-based so the transition can play: force a reflow, then fade/slide in
+  el.classList.remove("show");
+  void el.offsetWidth;
+  el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
-    el.hidden = true;
+    el.classList.remove("show");
   }, 3500);
 }
 
@@ -102,7 +105,7 @@ function formatElapsed(seconds) {
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  return (h > 0 ? h + ":" : "") + pad(m) + ":" + pad(s);
+  return (h > 0 ? pad(h) + ":" : "") + pad(m) + ":" + pad(s);
 }
 
 function timeAgo(iso) {
@@ -183,6 +186,10 @@ function addExpander(el, key, expandedSet, rerender) {
   btn.className = "chevron" + (open ? " open" : "");
   btn.title = open ? "Hide the executables" : "Show each executable";
   btn.setAttribute("aria-expanded", String(open));
+  btn.setAttribute(
+    "aria-label",
+    open ? "Hide the executables" : "Show each executable",
+  );
   btn.textContent = "▸";
   btn.addEventListener("click", toggle);
 
@@ -304,6 +311,7 @@ function queueAddButton(game, executable, durationMinutes, title) {
   btn.title =
     title ||
     "Add to the queue (plays for the time in the box above, then the next one starts)";
+  btn.setAttribute("aria-label", "Add " + game.name + " to the queue");
   btn.addEventListener("click", () => {
     if (btn.disabled) return;
     btn.disabled = true;
@@ -465,7 +473,8 @@ function renderRunning() {
   if (state.running.length === 0) {
     const p = document.createElement("p");
     p.className = "empty";
-    p.textContent = "No fake game running. Pick one below and press Start.";
+    p.textContent =
+      "No fake game running. Search a game below and press Start to begin.";
     list.appendChild(p);
     return;
   }
@@ -647,14 +656,20 @@ function renderQueue() {
 
     const up = button("\u2191", "ghost", () => queueMove(item.uid, "up"));
     up.title = "Move up";
+    up.setAttribute("aria-label", "Move " + item.name + " up in the queue");
     up.disabled = index === 0;
     const down = button("\u2193", "ghost", () => queueMove(item.uid, "down"));
     down.title = "Move down";
+    down.setAttribute(
+      "aria-label",
+      "Move " + item.name + " down in the queue",
+    );
     down.disabled = index === queue.items.length - 1;
     const remove = button("\u2715", "danger ghost", () =>
       queueRemove(item.uid),
     );
     remove.title = "Remove from the queue";
+    remove.setAttribute("aria-label", "Remove " + item.name + " from the queue");
 
     actions.append(minutes, unit, up, down, remove);
     el.appendChild(actions);
@@ -670,8 +685,10 @@ function renderPresets() {
   if (state.presets.length === 0) {
     const p = document.createElement("p");
     p.className = "empty";
-    p.innerHTML =
-      "No presets yet — press ☆ on a game to save it into <code>config.json</code>.";
+    p.append("No presets yet — press ☆ on any game to save it here. ");
+    const code = document.createElement("code");
+    code.textContent = "config.json";
+    p.append("Presets live in ", code, " so they survive a restart.");
     list.appendChild(p);
     return;
   }
@@ -822,6 +839,7 @@ function appendResultRow(container, game) {
   const star = document.createElement("button");
   star.className = "star" + (saved ? " on" : "");
   star.title = saved ? "Remove from config.json" : "Save to config.json";
+  star.setAttribute("aria-label", star.title + ": " + game.name);
   star.textContent = saved ? "★" : "☆";
   star.addEventListener("click", () => togglePreset(game));
 
@@ -830,6 +848,10 @@ function appendResultRow(container, game) {
   if (game.custom) {
     const remove = button("✕", "ghost", () => removeCustomGame(game));
     remove.title = "Remove this game from custom-games.json";
+    remove.setAttribute(
+      "aria-label",
+      "Remove " + game.name + " from custom-games.json",
+    );
     actions.push(remove);
   }
 
@@ -876,7 +898,9 @@ function renderResults() {
 }
 
 function renderMeta(meta) {
-  $("listMeta").textContent = meta.refreshing
+  const el = $("listMeta");
+  el.classList.toggle("loading", Boolean(meta.refreshing));
+  el.textContent = meta.refreshing
     ? "refreshing…"
     : meta.count +
       " games · " +
@@ -1025,6 +1049,22 @@ $("search").addEventListener("input", () => {
   searchTimer = setTimeout(runSearch, 180);
 });
 
+/* "/" jumps to the search box from anywhere; Escape there clears it */
+document.addEventListener("keydown", (event) => {
+  const search = $("search");
+  if (
+    event.key === "/" &&
+    event.target !== search &&
+    !/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)
+  ) {
+    event.preventDefault();
+    search.focus();
+  } else if (event.key === "Escape" && event.target === search && search.value) {
+    search.value = "";
+    runSearch();
+  }
+});
+
 $("results").addEventListener("scroll", () => {
   const el = $("results");
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 320) loadMore();
@@ -1157,6 +1197,15 @@ function initDisclaimer() {
     $("disclaimer").hidden = true;
     try {
       localStorage.setItem(DISCLAIMER_KEY, "1");
+    } catch (err) {
+      /* best effort */
+    }
+  });
+  // small footer link that brings the banner back
+  $("disclaimerShow").addEventListener("click", () => {
+    $("disclaimer").hidden = false;
+    try {
+      localStorage.removeItem(DISCLAIMER_KEY);
     } catch (err) {
       /* best effort */
     }

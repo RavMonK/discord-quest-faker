@@ -1,7 +1,7 @@
 # Discord Quest Faker — Wiki
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/RavMonK/discord-quest-faker/blob/main/LICENSE)
-[![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node.js 22 | 24 | 26](https://img.shields.io/badge/Node.js-22_%7C_24_%7C_26-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://github.com/RavMonK/discord-quest-faker/blob/main/package.json)
 
 เครื่องมือบนเครื่องตัวเองที่สร้าง "โปรเซสเกมปลอม" ให้ Discord ตรวจจับว่ากำลังเล่นเกมนั้นอยู่
