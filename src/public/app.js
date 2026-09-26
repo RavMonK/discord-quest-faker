@@ -132,8 +132,11 @@ function row(game, extras) {
   if (game.custom) {
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = "steam";
-    tag.title = "Added from Steam, not in Discord’s detectable list";
+    const typed = game.source === "custom";
+    tag.textContent = typed ? "custom" : "steam";
+    tag.title = typed
+      ? "Added by its process path, not in Discord’s detectable list"
+      : "Added from Steam, not in Discord’s detectable list";
     name.appendChild(tag);
   }
   const exe = document.createElement("div");
@@ -359,12 +362,12 @@ function queueSaveDelay() {
   });
 }
 
-function showSteamNote(text, forceInput) {
+function showSteamNote(text, forcePayload) {
   $("steamNoteText").textContent = text;
   $("steamNote").hidden = false;
   const force = $("steamForce");
-  force.hidden = !forceInput;
-  force.onclick = forceInput ? () => addCustomGame(forceInput, true) : null;
+  force.hidden = !forcePayload;
+  force.onclick = forcePayload ? () => addCustomGame(forcePayload, true) : null;
 }
 
 function clearSteamNote() {
@@ -372,19 +375,23 @@ function clearSteamNote() {
   $("steamForce").hidden = true;
 }
 
-/** Look a game up on Steam when Discord's detectable list does not have it. */
-async function addCustomGame(input, force) {
-  const btn = $("steamAdd");
-  if (!input) return;
+/**
+ * Add a game Discord's detectable list does not have: looked up on Steam (`{ input }`) or
+ * typed in as a process path (`{ executable, name }`, e.g. "EA SPORTS FC 27\FC27.exe").
+ */
+async function addCustomGame(payload, force) {
+  const byPath = payload.executable !== undefined;
+  const btn = $(byPath ? "exeAdd" : "steamAdd");
+  if (!(byPath ? payload.executable : payload.input)) return;
 
   btn.disabled = true;
-  btn.textContent = "Looking up…";
+  btn.textContent = byPath ? "Adding…" : "Looking up…";
   clearSteamNote();
 
   try {
     const data = await api("/api/custom", {
       method: "POST",
-      body: JSON.stringify({ input, force: Boolean(force) }),
+      body: JSON.stringify(Object.assign({}, payload, { force: Boolean(force) })),
     });
 
     // Discord already knowing the game is the good outcome, not a failure: its entry is the
@@ -392,11 +399,26 @@ async function addCustomGame(input, force) {
     const target = data.added ? data.game : data.useInstead;
 
     if (data.added) {
-      $("steamInput").value = "";
-      toast("Added " + target.name + " from Steam", "ok");
+      if (byPath) {
+        $("exeInput").value = "";
+        $("exeName").value = "";
+      } else {
+        $("steamInput").value = "";
+      }
+      toast("Added " + target.name + (byPath ? "" : " from Steam"), "ok");
       showSteamNote(
         "Saved to data/custom-games.json · " +
-          target.executables.map((e) => e.name || e).join(", "),
+          target.executables.map((e) => e.name || e).join(", ") +
+          (byPath ? " · " + data.note : ""),
+      );
+    } else if (byPath) {
+      toast(
+        target.name + " is already in Discord’s list — showing it below",
+        "ok",
+      );
+      showSteamNote(
+        data.note + ". A copy of your own would not count towards a quest.",
+        payload,
       );
     } else {
       toast(
@@ -409,7 +431,7 @@ async function addCustomGame(input, force) {
           target.executables.join(", ") +
           "), so it is ready to use as-is. " +
           "A Steam copy would not count towards a quest.",
-        input,
+        payload,
       );
     }
 
@@ -1071,11 +1093,23 @@ $("results").addEventListener("scroll", () => {
 });
 
 $("steamAdd").addEventListener("click", () =>
-  addCustomGame($("steamInput").value.trim()),
+  addCustomGame({ input: $("steamInput").value.trim() }),
 );
 $("steamInput").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") addCustomGame($("steamInput").value.trim());
+  if (event.key === "Enter") addCustomGame({ input: $("steamInput").value.trim() });
 });
+
+const addByPath = () =>
+  addCustomGame({
+    executable: $("exeInput").value.trim(),
+    name: $("exeName").value.trim(),
+  });
+$("exeAdd").addEventListener("click", addByPath);
+for (const id of ["exeInput", "exeName"]) {
+  $(id).addEventListener("keydown", (event) => {
+    if (event.key === "Enter") addByPath();
+  });
+}
 
 $("refreshBtn").addEventListener("click", async (event) => {
   const btn = event.currentTarget;

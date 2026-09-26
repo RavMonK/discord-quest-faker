@@ -19,7 +19,10 @@ node src/index.js --help
 | `--port <n>` | ทับค่า `port` ใน `config.json` (ไม่เขียนลงไฟล์) |
 | `--refresh` | ดึง `data/games.json` ใหม่แล้วออกจากโปรแกรม |
 | `--add-steam <id\|url>` | เพิ่มเกมที่ไม่มีในลิสต์ Discord จาก Steam app config |
-| `--force` | ใช้ร่วมกับ `--add-steam`: บันทึก entry ของ Steam ทั้งที่ Discord มีอยู่แล้ว |
+| `--add-exe <path>` | เพิ่มเกมจาก path ของ process เช่น `"EA SPORTS FC 27\FC27.exe"` |
+| `--name <ชื่อเกม>` | ใช้ร่วมกับ `--add-exe`: ชื่อที่จะแสดง (ค่าเริ่มต้น: ชื่อโฟลเดอร์ที่ไฟล์อยู่) |
+| `--id <game id>` | ใช้ร่วมกับ `--add-exe`: game id ของ Discord (**Copy Game ID** ในหน้าโปรไฟล์เกม) — หรือใส่นำหน้า path ก็ได้ |
+| `--force` | ใช้ร่วมกับ `--add-steam` / `--add-exe`: บันทึก entry ของเราเองทั้งที่ Discord มีอยู่แล้ว |
 | `--list [query]` | พิมพ์เกมที่ตรงคำค้น (เฉพาะที่รันได้บนระบบนี้) แล้วออก |
 | `--start <name\|id>` | รันเกมจาก command line (Ctrl+C เพื่อหยุด) |
 | `--exe all\|<name>\|<n>` | เลือกว่าจะรัน executable ตัวไหน (ไม่ใส่ = ตัวแรก) |
@@ -36,6 +39,9 @@ node src/index.js --help
 node src/index.js --list fortnite            # ค้นหาเกม + ดู index ของแต่ละ executable
 node src/index.js --add-steam 3787240        # เพิ่มเกมที่ไม่มีในลิสต์ Discord จาก Steam
 node src/index.js --add-steam 4783780 --force  # บันทึก entry ของ Steam ทั้งที่ Discord มีอยู่แล้ว
+node src/index.js --add-exe "EA SPORTS FC 27\FC27.exe"   # เพิ่มเกมจาก path ของ process
+node src/index.js --add-exe "FC27.exe" --name "EA SPORTS FC 27"  # ...พร้อมตั้งชื่อเอง
+node src/index.js --add-exe "1531874756096295054\EA SPORTS FC 27\FC27.exe"  # ผูกกับ game id ของ Discord
 node src/index.js --start "Rocket League"    # รัน executable ตัวแรก (Ctrl+C เพื่อหยุด)
 node src/index.js --start "League of Legends" --exe all      # รันทุก executable (ปกติไม่จำเป็น)
 node src/index.js --start "World of Warcraft" --exe 2        # เลือกด้วย index จาก --list
@@ -114,5 +120,5 @@ npm test         # ชุดทดสอบ (node:test)
 ## อ่านต่อ
 
 - [การตั้งค่า](TH-Configuration) — ค่าที่ flag เหล่านี้ไปทับ
-- [เพิ่มเกมจาก Steam](TH-Steam-Games) — `--add-steam` และ `--force` ละเอียด ๆ
+- [เพิ่มเกมจาก Steam](TH-Steam-Games) — `--add-steam`, `--add-exe` และ `--force` ละเอียด ๆ
 - [หน้าเว็บควบคุม](TH-Control-Panel) — เทียบกับฝั่ง UI

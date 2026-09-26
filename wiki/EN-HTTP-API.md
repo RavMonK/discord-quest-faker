@@ -127,6 +127,19 @@ Re-fetch Discord's list right now.
   — not an error; the panel opens Discord's entry instead (see [Steam games](EN-Steam-Games))
 - `400` → no app id found / Steam lookup failed / no launch executable
 
+Send `executable` instead of `input` to add a game by its process path — no Steam lookup:
+
+```json
+{ "executable": "EA SPORTS FC 27\\FC27.exe", "name": "EA SPORTS FC 27", "force": false }
+```
+
+`name` is optional (default: the folder the executable sits in). A Discord game id — as `id`, in
+`name`, or leading the path (`"1531874756096295054\\EA SPORTS FC 27\\FC27.exe"`) — becomes the entry's id,
+and its name and icon are looked up on Discord. The responses have the same
+shape; `useInstead` comes back when the path is — or is the tail of — an executable in Discord's
+list, and `400` means the path was refused (`..`, characters Windows forbids, not `.exe` on
+Windows, `.exe` anywhere else). Adding a second path under the same name adds it to that game.
+
 ## `DELETE /api/custom`
 
 ```json

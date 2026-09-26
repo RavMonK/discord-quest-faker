@@ -20,7 +20,10 @@ node src/index.js --help
 | `--port <n>` | Override `port` from `config.json` (never written back to the file) |
 | `--refresh` | Just refresh `data/games.json` and exit |
 | `--add-steam <id\|url>` | Add a game missing from Discord's list, from its Steam app config |
-| `--force` | With `--add-steam`: save the Steam entry even though Discord already has the game |
+| `--add-exe <path>` | Add a game by its process path, e.g. `"EA SPORTS FC 27\FC27.exe"` |
+| `--name <game name>` | With `--add-exe`: the name to list it under (default: the folder the executable sits in) |
+| `--id <game id>` | With `--add-exe`: Discord's game id (**Copy Game ID** on the game's profile) — or lead the path with it |
+| `--force` | With `--add-steam` / `--add-exe`: save your entry even though Discord already has the game |
 | `--list [query]` | Print matching games for this OS and exit |
 | `--start <name\|id>` | Start a game from the command line (Ctrl+C to stop) |
 | `--exe all\|<name>\|<n>` | Which executable(s) to run (default: the first one) |
@@ -37,6 +40,9 @@ Both `--port 8080` and `--port=8080` are accepted.
 node src/index.js --list fortnite            # matching games + the executable index for --exe
 node src/index.js --add-steam 3787240        # add a game missing from Discord's list, from Steam
 node src/index.js --add-steam 4783780 --force  # save the Steam entry anyway
+node src/index.js --add-exe "EA SPORTS FC 27\FC27.exe"   # add a game by its process path
+node src/index.js --add-exe "FC27.exe" --name "EA SPORTS FC 27"  # ...with a name of your own
+node src/index.js --add-exe "1531874756096295054\EA SPORTS FC 27\FC27.exe"  # on Discord's game id
 node src/index.js --start "Rocket League"    # start the first executable (Ctrl+C to stop)
 node src/index.js --start "League of Legends" --exe all      # every executable (rarely useful)
 node src/index.js --start "World of Warcraft" --exe 2        # pick by index from --list
@@ -116,5 +122,5 @@ children — go with it.
 ## Read next
 
 - [Configuration](EN-Configuration) — the values these flags override
-- [Steam games](EN-Steam-Games) — `--add-steam` and `--force` in detail
+- [Steam games](EN-Steam-Games) — `--add-steam`, `--add-exe` and `--force` in detail
 - [Control panel](EN-Control-Panel) — the UI equivalent

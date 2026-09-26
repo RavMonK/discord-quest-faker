@@ -131,7 +131,7 @@ autoStartPresets  ·  defaultDurationMinutes  ·  maxConcurrent
 
 ```
 data/games.json          รายชื่อเกมจาก Discord (~3 MB, ~10,400 เกม) — ลบได้ เดี๋ยวดึงใหม่
-data/custom-games.json   เกมที่เพิ่มเองจาก Steam — ไม่ถูกเขียนทับตอน refresh
+data/custom-games.json   เกมที่เพิ่มเองจาก Steam หรือจาก path ของ process — ไม่ถูกเขียนทับตอน refresh
 data/runtime/            ไฟล์ปลอมของแต่ละเกม — ลบได้ตอนไม่ได้รันอยู่
 data/runtime/_build/     ซอร์ส C# และไฟล์ stamp ที่ใช้ตัดสินว่าต้อง build ใหม่ไหม
 data/runtime/_icons/     ไอคอนเกมที่โหลดมาแล้ว

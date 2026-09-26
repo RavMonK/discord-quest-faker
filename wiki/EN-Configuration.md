@@ -131,7 +131,7 @@ Everything else keeps its on-disk value, and the file is written atomically (`.t
 
 ```
 data/games.json          Discord's game list (~3 MB, ~10,400 games) — safe to delete, refetched
-data/custom-games.json   games added from Steam — never overwritten by a list refresh
+data/custom-games.json   games added from Steam or by process path — never overwritten by a list refresh
 data/runtime/            the placeholder binaries — safe to delete while nothing runs
 data/runtime/_build/     the C# source and the stamp files that decide on a rebuild
 data/runtime/_icons/     downloaded game icons

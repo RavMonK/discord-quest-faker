@@ -87,6 +87,12 @@
           <input type="text" id="steamInput" placeholder="SteamDB / Steam URL or app id — e.g. https://steamdb.info/app/3787240/config/" autocomplete="off">
           <button class="btn" id="steamAdd">Add</button>
         </div>
+        <label for="exeInput" class="exe-add-label">…or type the game's process path yourself:</label>
+        <div class="steam-add-row">
+          <input type="text" id="exeInput" placeholder="Process path — e.g. EA SPORTS FC 27\FC27.exe" autocomplete="off" spellcheck="false">
+          <input type="text" id="exeName" class="exe-name" placeholder="Discord game ID or name (optional)" aria-label="Discord game ID (Copy Game ID on the game's profile) or a name — optional, defaults to the folder name" title="Discord game ID from Copy Game ID on the game's profile (name and icon come from Discord), or just a name. The ID can also lead the path: 1531874756096295054\EA SPORTS FC 27\FC27.exe" autocomplete="off">
+          <button class="btn" id="exeAdd">Add</button>
+        </div>
         <div class="steam-note" id="steamNote" hidden>
           <span id="steamNoteText"></span>
           <button class="btn small ghost" id="steamForce" hidden>Add anyway</button>

@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { createServer } = require('../src/server');
+const { createServer, findExecutableTwin } = require('../src/server');
 const { GameStore, OS_KEY } = require('../src/games');
 const { QuestQueue } = require('../src/queue');
 
@@ -16,6 +16,11 @@ async function fixture(t) {
   const config = { host: '127.0.0.1', presets: [], queue: [], configPath: '/unused/config.json' };
   store.config = config;
   store.custom = [];
+  store.detectable = [{
+    id: '900', name: 'EA Sports FC 26', aliases: [],
+    executables: [{ name: 'ea sports fc 26/fc26.exe', os: OS_KEY }]
+  }];
+  store.saveCustom = () => {}; // never write a real custom-games.json from a test
   const calls = { start: 0, stop: 0, save: 0 };
   const spoofer = {
     start() { calls.start++; return { ok: true, sessions: [] }; },
@@ -45,7 +50,7 @@ async function fixture(t) {
   const session = await request('/api/session');
   assert.equal(session.status, 200);
   const headers = { 'X-DQF-Token': session.data.token, 'Content-Type': 'application/json' };
-  return { request, origin, headers, calls };
+  return { request, origin, headers, calls, store };
 }
 
 test('API: same-origin session permits reads and commands; token stays out of static HTML', async t => {
@@ -133,4 +138,50 @@ test('API: authenticated queue actions persist only through the injected save', 
 
 test('API: refuses a listener configuration exposed to the network', () => {
   assert.throws(() => createServer({ config: { host: '0.0.0.0' } }), /host must be/);
+});
+
+test('findExecutableTwin: a typed path that is, or lacks the folder of, a Discord path finds it', () => {
+  const detectable = [
+    { id: '1', name: 'EA Sports FC 26', executables: [{ name: 'ea sports fc 26/fc26.exe', os: 'win32' }] },
+    { id: '2', name: 'Other', executables: [{ name: 'other/fc26.exe', os: 'darwin' }] }
+  ];
+  const typed = (name) => ({ executables: [{ name, os: 'win32' }] });
+  assert.equal(findExecutableTwin(detectable, typed('EA SPORTS FC 26/FC26.exe')).id, '1');
+  assert.equal(findExecutableTwin(detectable, typed('FC26.exe')).id, '1');
+  assert.equal(findExecutableTwin(detectable, typed('Games/EA SPORTS FC 26/fc26.exe')).id, '1');
+  assert.equal(findExecutableTwin(detectable, typed('EA SPORTS FC 27/FC27.exe')), null);
+  // a folder name that merely ends the same is not the same path
+  assert.equal(findExecutableTwin(detectable, typed('xea sports fc 26/fc26.exe')), null);
+
+  // Discord's own entry for the given id wins once it lists an executable for this OS
+  const own = (executables) => [{ id: '1531874756096295054', name: 'EA Sports FC 27', executables }];
+  const byId = { id: '1531874756096295054', executables: [{ name: 'x/FC27.exe', os: 'win32' }] };
+  assert.equal(findExecutableTwin(own([{ name: 'ea sports fc 27/fc27.exe', os: 'win32' }]), byId).id, '1531874756096295054');
+  assert.equal(findExecutableTwin(own([]), byId), null);
+  assert.equal(findExecutableTwin(own([{ name: 'fc27', os: 'darwin' }]), byId), null);
+});
+
+test('API: POST /api/custom adds a game by process path, or points at Discord\'s own entry', async t => {
+  const f = await fixture(t);
+  const post = (body) => f.request('/api/custom', { method: 'POST', headers: f.headers, body: JSON.stringify(body) });
+  const exe = (base) => (OS_KEY === 'win32' ? base + '.exe' : base);
+
+  const bad = await post({ executable: '..\\x' });
+  assert.equal(bad.status, 400);
+
+  const twin = await post({ executable: 'EA SPORTS FC 26\\' + exe('FC26') });
+  if (OS_KEY === 'win32') {
+    assert.equal(twin.data.added, false);
+    assert.equal(twin.data.useInstead.id, '900');
+    assert.equal(f.store.custom.length, 0);
+  }
+
+  const added = await post({ executable: 'EA SPORTS FC 27\\' + exe('FC27') });
+  assert.equal(added.status, 200);
+  assert.equal(added.data.added, true);
+  assert.equal(added.data.game.id, 'custom-ea-sports-fc-27');
+  assert.equal(f.store.custom.length, 1);
+
+  const forced = await post({ executable: 'EA SPORTS FC 26\\' + exe('FC26'), force: true });
+  assert.equal(forced.data.added, true);
 });

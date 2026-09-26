@@ -113,11 +113,12 @@ It is seeded from `defaultDurationMinutes` in `config.json`.
 |---|---|
 | **☆ / ★** | Save / unsave as a preset (written to `config.json` immediately) |
 | **＋** | Add to the queue, with the auto-stop time from the box above |
-| **✕** | Delete a hand-added game from `custom-games.json` (only on `steam`-tagged rows) |
+| **✕** | Delete a hand-added game from `custom-games.json` (only on `steam`- / `custom`-tagged rows) |
 | **Start** | Runs the first non-launcher executable |
 | **Stop** / **Stop all (N)** | Stops every executable of that game |
 | **▸** (or clicking the name) | Expands the executable list for per-executable Start/Stop |
 | `steam` tag | Added from Steam; not in Discord's detectable list |
+| `custom` tag | Added by typing its process path; not in Discord's detectable list |
 | `launcher` tag | A bootstrapper/launcher executable — always sorted last |
 | Left accent bar | That game is currently running |
 

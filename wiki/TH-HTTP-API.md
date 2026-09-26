@@ -127,6 +127,18 @@
   — ไม่ใช่ error หน้าเว็บจะพาไปที่ entry ของ Discord ให้ (ดู [เพิ่มเกมจาก Steam](TH-Steam-Games))
 - `400` → หา app id ไม่ได้ / Steam lookup ล้มเหลว / ไม่มี launch executable
 
+ส่ง `executable` แทน `input` เพื่อเพิ่มเกมจาก path ของ process โดยไม่ต้องค้น Steam:
+
+```json
+{ "executable": "EA SPORTS FC 27\\FC27.exe", "name": "EA SPORTS FC 27", "force": false }
+```
+
+`name` ไม่ใส่ก็ได้ (ค่าเริ่มต้น: ชื่อโฟลเดอร์ที่ไฟล์อยู่) game id ของ Discord — ส่งเป็น `id`, ใส่ใน `name` หรือนำหน้า
+path (`"1531874756096295054\\EA SPORTS FC 27\\FC27.exe"`) — จะกลายเป็น id ของ entry และดึงชื่อกับไอคอนจาก Discord ให้ response มีรูปแบบเดียวกัน จะได้
+`useInstead` เมื่อ path นั้นตรงกับ — หรือเป็นส่วนท้ายของ — executable ในลิสต์ของ Discord และได้ `400`
+เมื่อ path ใช้ไม่ได้ (`..`, ตัวอักษรที่ Windows ห้าม, บน Windows ไม่ลงท้าย `.exe`, บนระบบอื่นลงท้าย
+`.exe`) เพิ่ม path ที่สองด้วยชื่อเดิมจะต่อเข้าเกมเดิม
+
 ## `DELETE /api/custom`
 
 ```json
