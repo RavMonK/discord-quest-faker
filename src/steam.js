@@ -43,8 +43,15 @@ function executablesInArguments(args) {
   return matches.filter((token) => !/^[-+/]/.test(token) && !token.includes('='));
 }
 
+function isLauncherUri(name) {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(String(name || '').trim());
+}
+
 /** Steam paths use backslashes and can carry junk we do not want to turn into directories. */
 function normalizeExecutable(name) {
+  // A launch entry can be a URI handed to another launcher (EA: "steam2ea://launchgame/..."),
+  // not a file. There is no process name in it to impersonate.
+  if (isLauncherUri(name)) return null;
   const cleaned = String(name || '')
     .replace(/\\/g, '/')
     .replace(/^\.\//, '')
@@ -77,10 +84,12 @@ async function fetchGame(input) {
   const launch = (app.config && app.config.launch) || {};
   const executables = [];
   const seen = new Set();
+  const launcherUris = [];
 
   for (const key of Object.keys(launch)) {
     const entry = launch[key];
     if (!entry) continue;
+    if (isLauncherUri(entry.executable)) launcherUris.push(String(entry.executable).trim());
 
     const names = [entry.executable]
       .concat(executablesInArguments(entry.arguments))
@@ -102,6 +111,10 @@ async function fetchGame(input) {
     }
   }
 
+  if (executables.length === 0 && launcherUris.length > 0) {
+    throw new Error(common.name + ' (' + appId + ') is started through an external launcher ('
+      + launcherUris[0] + '), so Steam does not name its executable - use the game\'s Discord entry once it lists one');
+  }
   if (executables.length === 0) {
     throw new Error(common.name + ' (' + appId + ') has no launch executable in its Steam config');
   }
@@ -121,4 +134,4 @@ async function fetchGame(input) {
   };
 }
 
-module.exports = { fetchGame, parseAppId, normalizeExecutable, executablesInArguments, osKeysFor, APPINFO_API };
+module.exports = { fetchGame, parseAppId, normalizeExecutable, executablesInArguments, osKeysFor, isLauncherUri, APPINFO_API };

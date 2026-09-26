@@ -129,6 +129,11 @@ node src/index.js --start "Call of Duty: Modern Warfare 4" --exe "cod26-cod.exe"
 - ชื่อที่ขึ้นต้นด้วย `start_protected_game`, `bootstrapper` หรือ `launcher` ถูกทำเครื่องหมายเป็น
   launcher และจัดไว้ท้าย
 - ถ้า app นั้นไม่มี launch executable เลย จะได้ error ไม่ใช่ entry เปล่า
+- **URI ของ launcher ไม่ใช่ executable** บางเกมส่งต่อให้ launcher ตัวอื่นเปิด ช่อง `executable`
+  ของ Steam จึงเป็น URI ไม่ใช่ไฟล์ — EA SPORTS FC 27 มี `steam2ea://launchgame/4080220?...`
+  อะไรที่อยู่ในรูป `scheme://...` จะถูกทิ้ง และถ้า launch config ไม่มีอย่างอื่นเลย จะได้ error ที่
+  บอกชื่อ launcher นั้น Steam ไม่รู้ชื่อ process จริงของเกมพวกนี้ ต้องรอให้ entry ของ Discord
+  ใส่ executable ก่อน แล้วค่อย `--refresh`
 
 ## อ่านต่อ
 

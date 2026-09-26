@@ -2,7 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseAppId, normalizeExecutable, executablesInArguments, osKeysFor } = require('../src/steam');
+const { parseAppId, normalizeExecutable, executablesInArguments, osKeysFor, isLauncherUri } = require('../src/steam');
+
+test('normalizeExecutable: a launcher URI is not an executable (EA steam2ea://)', () => {
+  assert.equal(normalizeExecutable('steam2ea://launchgame/4080220?platform=steam&theme=fc27'), null);
+  assert.equal(isLauncherUri('steam2ea://launchgame/4080220'), true);
+  assert.equal(isLauncherUri('com.epicgames.launcher://apps/x'), true);
+  assert.equal(isLauncherUri('bin/win64/game.exe'), false);
+  assert.equal(isLauncherUri('C:\\Games\\game.exe'), false);
+});
 
 test('parseAppId: bare digits pass through', () => {
   assert.equal(parseAppId('3787240'), '3787240');
