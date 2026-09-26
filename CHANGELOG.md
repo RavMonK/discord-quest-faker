@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.6.0 - 2026-09-26
+
+### Added
+
+- Add a game by its **process path** when neither Discord's list nor Steam has a usable one —
+  e.g. `EA SPORTS FC 27\FC27.exe`. A new row under the Steam box in the control panel,
+  `--add-exe <path>` (with `--name` / `--id` / `--force`) on the CLI, and
+  `POST /api/custom { executable, name, id }` in the API. A full path copied out of Task Manager
+  works (the drive letter is dropped); `..`, characters Windows forbids, a non-`.exe` name on
+  Windows and a `.exe` name on macOS/Linux are refused. Such games get a `custom` tag, live in
+  `data/custom-games.json`, and a second path under the same name adds to the same game.
+- A **Discord game id** (⋯ → *Copy Game ID* on the game's profile) can lead the path
+  (`1531874756096295054\EA SPORTS FC 27\FC27.exe`), go in the name box, or be passed as `--id`.
+  The entry then uses Discord's application id, and its name and icon are looked up from
+  Discord's public `/applications/<id>/rpc` endpoint.
+- A typed path that is — or is the tail of — an executable Discord already lists (`FC26.exe` →
+  *EA Sports FC 26*) points you at Discord's entry instead (`findExecutableTwin()`), same as a
+  Steam add; **Add anyway** / `--force` overrides.
+
+### Changed
+
+- A custom entry on a Discord game id now **adds** its executables to Discord's entry instead
+  of replacing it, so an entry saved before Discord lists a game's executables never hides them
+  afterwards.
+- Wiki (TH/EN): Steam Games, CLI Reference, HTTP API, Control Panel and Configuration document
+  process-path adds and the Discord game id.
+
+### Known limitation
+
+- A detectable entry with **no executables** cannot be made to register. EA Sports FC 27 is one
+  right now: its entry lists only third-party SKUs, so no process name can match it. Starting
+  the placeholder with Steam's `SteamAppId` in its environment was tried and makes no
+  difference. Keep the custom entry; it starts counting once Discord adds the executables.
+
+### Testing
+
+- 101 tests (94 run, 7 skipped as OS-specific), including path parsing, Discord game ids, the
+  Discord lookup (stubbed), executable merging, the twin check and the new API branch.
+
+Full changelog: [v1.5.1...v1.6.0](https://github.com/RavMonK/discord-quest-faker/compare/v1.5.1...v1.6.0)
+
 ## 1.5.1 - 2026-09-26
 
 ### Fixed

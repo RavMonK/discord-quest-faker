@@ -4,9 +4,9 @@
 const { exec, execSync } = require('child_process');
 const readline = require('readline');
 const configModule = require('./config');
-const { GameStore, OS_KEY } = require('./games');
+const { GameStore, OS_KEY, customGame, withDiscordDetails } = require('./games');
 const { Spoofer } = require('./spoof');
-const { createServer, findDetectableTwin } = require('./server');
+const { createServer, findDetectableTwin, findExecutableTwin } = require('./server');
 const { QuestQueue } = require('./queue');
 const steam = require('./steam');
 
@@ -173,6 +173,10 @@ function printHelp() {
     '  --port <n>            override the port from config.json',
     '  --refresh             just refresh data/games.json and exit',
     '  --add-steam <id|url>  add a game missing from Discord list, from its Steam app config',
+    '  --add-exe <path>      add a game by its process path, e.g. "EA SPORTS FC 27\\FC27.exe"',
+    '  --name <game name>    with --add-exe: the name to list it under (default: its folder)',
+    '  --id <game id>        with --add-exe: Discord\'s game id ("Copy Game ID"), or give it as the',
+    '                        path\'s first part: "1531874756096295054\\EA SPORTS FC 27\\FC27.exe"',
     '  --list [query]        print matching games for this OS and exit',
     '  --start <name|id>     start a game from the command line (Ctrl+C to stop)',
     '  --exe all|<name>|<n>  which executable(s) of that game to run (default: the first one)',
@@ -270,6 +274,36 @@ async function main() {
       console.log('\nStart it with: node src/index.js --start "' + game.name + '"\n');
     } catch (err) {
       console.error('[steam] ' + err.message);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (args['add-exe']) {
+    try {
+      if (args['add-exe'] === true) throw new Error('--add-exe needs a process path, e.g. "EA SPORTS FC 27\\FC27.exe"');
+      const game = customGame(args['add-exe'], typeof args.name === 'string' ? args.name : '',
+        OS_KEY, typeof args.id === 'string' ? args.id : '');
+      const known = args.force ? null : findExecutableTwin(store.detectable, game);
+
+      if (known) {
+        // Discord's own entry is the one a quest counts, and its path is what gets detected.
+        console.log('\n[custom] ' + game.executables[0].name + ' is already in Discord\'s list as "' + known.name + '"');
+        Spoofer.candidates(known).forEach((exe, i) => console.log('   [' + i + '] ' + exe.name));
+        console.log('\nStart it with: node src/index.js --start "' + known.name + '" --exe <index or name>');
+        console.log('(pass --force to save your own entry anyway)\n');
+        return;
+      }
+
+      const lookup = await withDiscordDetails(game);
+      if (lookup.error) console.log('[custom] could not look up game id ' + game.id + ' on Discord: ' + lookup.error);
+      const saved = store.addCustom(lookup.game, { merge: true });
+      console.log('\n[custom] added "' + saved.name + '" as ' + saved.id);
+      Spoofer.candidates(saved).forEach((exe, i) => console.log('   [' + i + '] ' + exe.name));
+      console.log('\nStart it with: node src/index.js --start "' + saved.name + '"');
+      console.log('Discord detects it only once its own detectable list has this path.\n');
+    } catch (err) {
+      console.error('[custom] ' + err.message);
       process.exitCode = 1;
     }
     return;

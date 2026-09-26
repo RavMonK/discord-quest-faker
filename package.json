@@ -1,6 +1,6 @@
 {
   "name": "discord-quest-faker",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Fake game runner for Discord quests - fetches the detectable game list and spoofs a running game process (Windows / macOS / Linux)",
   "private": true,
   "type": "commonjs",

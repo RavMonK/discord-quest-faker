@@ -4,7 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
-const { OS_KEY, fold } = require('./games');
+const { OS_KEY, fold, customGame, withDiscordDetails } = require('./games');
 const { Spoofer } = require('./spoof');
 const steam = require('./steam');
 const configModule = require('./config');
@@ -88,6 +88,40 @@ function findDetectableTwin(detectable, game) {
     if (score > bestScore || (score > 0 && score === bestScore && knownKey.length > titleKey(best.name).length)) {
       best = known;
       bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * The Discord entry a hand-typed process path collides with, if any. Discord matches the tail
+ * of a process path, so a typed "fc26.exe" is Discord's "ea sports fc 26/fc26.exe" without the
+ * folder it needs (it would never be detected), and a typed "games/ea sports fc 26/fc26.exe"
+ * already *is* that entry. Either way the Discord entry is the one to use.
+ */
+function findExecutableTwin(detectable, game) {
+  // Given Discord's own game id, the entry under that id wins - once it lists an executable.
+  const oses = new Set(game.executables.map((e) => e.os));
+  const own = detectable.find((known) => known.id === game.id);
+  if (own && own.executables.some((e) => oses.has(e.os))) return own;
+
+  const tail = (long, short) => long === short || long.endsWith('/' + short);
+  let best = null;
+  let bestScore = 0;
+
+  for (const exe of game.executables) {
+    const typed = fold(exe.name).replace(/\\/g, '/');
+    for (const known of detectable) {
+      for (const candidate of known.executables) {
+        if (candidate.os !== exe.os) continue;
+        const name = fold(candidate.name).replace(/\\/g, '/');
+        const score = name === typed ? 2 : (tail(name, typed) || tail(typed, name)) ? 1 : 0;
+        if (score > bestScore) {
+          best = known;
+          bestScore = score;
+        }
+      }
     }
   }
 
@@ -243,6 +277,46 @@ function createServer({ config, store, spoofer, queue }) {
 
       if (route === '/api/custom' && req.method === 'POST') {
         const body = await readBody(req);
+
+        // A process path typed by hand ("EA SPORTS FC 27\FC27.exe") instead of a Steam lookup.
+        if (body.executable !== undefined) {
+          let game;
+          try {
+            game = customGame(body.executable, body.name, OS_KEY, body.id);
+          } catch (err) {
+            return sendJson(res, 400, { ok: false, reason: err.message });
+          }
+
+          const known = findExecutableTwin(store.detectable, game);
+          if (known && !body.force) {
+            const wants = Spoofer.candidates(known).map((e) => e.name);
+            console.log('[custom] ' + game.executables[0].name + ' matches detectable "' + known.name + '" - not adding');
+            return sendJson(res, 200, {
+              ok: true,
+              added: false,
+              useInstead: { id: known.id, name: known.name, executables: wants },
+              note: 'Discord already tracks ' + game.executables[0].name + ' as "' + known.name
+                + '" (' + wants.join(', ') + ') - opening that entry',
+              games: store.meta()
+            });
+          }
+
+          // the id and path are settled; only the name and icon can still come from Discord
+          const lookup = await withDiscordDetails(game);
+          const saved = store.addCustom(lookup.game, { merge: true });
+          console.log('[custom] added ' + saved.name + ' (' + saved.id + ') -> ' + game.executables[0].name
+            + (lookup.error ? ' - Discord lookup failed: ' + lookup.error : ''));
+          return sendJson(res, 200, {
+            ok: true,
+            added: true,
+            game: saved,
+            note: (lookup.looked ? 'Discord game id ' + saved.id + ' is "' + saved.name + '". ' : '')
+              + (lookup.error ? 'Could not look up game id ' + saved.id + ' on Discord (' + lookup.error + '). ' : '')
+              + 'Discord detects it only once its own detectable list has this path',
+            games: store.meta()
+          });
+        }
+
         try {
           const game = await steam.fetchGame(body.input);
 
@@ -431,4 +505,4 @@ function createServer({ config, store, spoofer, queue }) {
   return { server, startPreset };
 }
 
-module.exports = { createServer, findDetectableTwin };
+module.exports = { createServer, findDetectableTwin, findExecutableTwin };

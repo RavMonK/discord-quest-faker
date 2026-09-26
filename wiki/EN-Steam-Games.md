@@ -136,11 +136,53 @@ Details worth knowing:
   `executable` is a URI rather than a file — EA SPORTS FC 27 has
   `steam2ea://launchgame/4080220?...`. Anything shaped `scheme://...` is dropped, and an app
   whose launch config holds nothing else is refused with an error naming the launcher. Steam
-  simply does not know the real process name for these games; wait for Discord's own entry to
-  list one, then `--refresh`.
+  simply does not know the real process name for these games: wait for Discord's own entry to
+  list one, then `--refresh` — or type the process path yourself (below).
+
+## Adding a game by its process path
+
+When Steam has nothing usable — EA SPORTS FC 27 is the case above — type the path the game's
+process runs from instead. In the panel it is the **"…or type the game's process path
+yourself:"** row under the Steam box; from the CLI:
+
+```bash
+node src/index.js --add-exe "EA SPORTS FC 27\FC27.exe"
+node src/index.js --add-exe "FC27.exe" --name "EA SPORTS FC 27"
+```
+
+- **Type the folder too when you know it.** Discord matches the *tail* of a process path, and its
+  entries for this series include the folder (`ea sports fc 26/fc26.exe`), so a bare `FC27.exe`
+  will likely not match once Discord lists the game. The folder is recreated under
+  `data/runtime/custom-<name>/`, exactly like a Discord entry's.
+- **A full path works** — `C:\Games\EA SPORTS FC 27\FC27.exe` copied out of Task Manager loses its
+  drive letter and keeps the rest, which still ends with the right tail.
+- **Use Discord's game id when it has one.** On the game's profile in Discord, **⋯ → Copy Game
+  ID**, then lead the path with it — `1531874756096295054\EA SPORTS FC 27\FC27.exe` — or put it
+  in the name box / `--id`. The entry then sits on Discord's application id, and its name and
+  icon come from Discord (`/applications/<id>/rpc`, no login needed). Discord can know a game —
+  even run a quest for it — before its detectable entry lists any executable: EA Sports FC 27
+  did, and while it lists none **nothing this tool does gets it detected** (a Steam
+  `SteamAppId` in the placeholder's environment was tried; Discord ignores it). Once Discord's
+  entry lists an executable, new adds are pointed at it, and a saved entry on the same id simply
+  adds its paths to Discord's instead of hiding them — so leaving it in place is harmless.
+- **The name** defaults to the folder the executable sits in (`EA SPORTS FC 27`), or the file
+  name without `.exe`. Adding another path under the same name adds a second executable to that
+  game instead of making a new one.
+- **Refused:** `..`, the characters Windows forbids (`< > : " | ? *`), a name not ending in
+  `.exe` on Windows, and one ending in `.exe` on macOS/Linux — a real game there is never a
+  `foo.exe` process.
+- **Discord already has it?** When the path is — or is the tail of — an executable in Discord's
+  list (`FC26.exe` → *EA Sports FC 26*), the tool points you at that entry, same as a Steam add.
+  **Add anyway** / `--force` saves yours regardless.
+
+Such a game gets a `custom` tag and lives in `data/custom-games.json` next to the Steam ones.
+The limitation above applies unchanged: the entry itself earns nothing. It pays off when the path
+you typed is the one in **Discord's** list — Discord matches the running process against its own
+list, not against this tool's ids — for example a game Discord has added since
+`data/games.json` was fetched.
 
 ## Read next
 
-- [CLI reference](EN-CLI-Reference) — `--add-steam`, `--force`, `--exe`
+- [CLI reference](EN-CLI-Reference) — `--add-steam`, `--add-exe`, `--force`, `--exe`
 - [Configuration](EN-Configuration) — where `custom-games.json` lives
 - [How it works](EN-How-It-Works) — why any executable works

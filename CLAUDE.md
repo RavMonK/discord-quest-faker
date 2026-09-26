@@ -25,6 +25,7 @@ node src/index.js --list <query>  # matching games + the executable index used b
 node src/index.js --start "<game>" --exe <all|name|index> --duration <minutes>
 node src/index.js --queue          # play config.json's queue, one game at a time
 node src/index.js --add-steam <steam app id or URL> [--force]
+node src/index.js --add-exe "[1531874756096295054\]EA SPORTS FC 27\FC27.exe" [--name "<game>"] [--id <game id>] [--force]
 node src/index.js --help
 ```
 
@@ -36,7 +37,7 @@ node --check src/spoof.js         # syntax check a file
 ```
 
 `tests/` covers only pure, deterministic logic that is safe to run without touching the real
-project state: `games.js`'s `normalize()`/`fold()`/`GameStore` (constructed with a temp-dir
+project state: `games.js`'s `normalize()`/`fold()`/`parseProcessPath()`/`customGame()`/`withDiscordDetails()` (stub fetcher)/`GameStore` (constructed with a temp-dir
 config, never the real `config.json`), `spoof.js`'s path/name helpers (`materialize()`,
 `writeBundle()`, `bundlePlist()`, `rebuildBundle()`, `safeName()`, `signalToken()`, `cString()`,
 `asciiLabel()`, `linuxCompiler()`, `linuxSource()`, `candidates()`/`select()`), the per-platform
@@ -123,7 +124,14 @@ Six modules under `src/`, wired together in `index.js`:
   Only `EDITABLE_KEYS` are written back.
 - **games.js** — `GameStore` keeps three lists: `detectable` (from Discord), `custom` (added by
   hand, in `data/custom-games.json`), and `games` (the merge that everything else reads). A list
-  refresh replaces `detectable` and re-merges, so custom entries survive. `fold()` strips accents
+  refresh replaces `detectable` and re-merges, so custom entries survive (a custom entry on a
+  detectable id adds its executables to that entry instead of replacing it). Custom entries come
+  from Steam (`steam.js`) or from a process path typed by hand (`customGame()`, `source: 'custom'`,
+  id = a Discord game id when given - leading the path, as `--id`, or in the name - else
+  `custom-<slug of name>`; `withDiscordDetails()` then fills name/icon from Discord's public
+  `/applications/<id>/rpc` and must run before saving); a second path under the same name merges into
+  that entry. `findExecutableTwin()` in `server.js` refuses a typed path that is, or is the tail
+  of, one Discord already lists - only Discord's entry earns quest progress. `fold()` strips accents
   for search — without it "marvel tokon" cannot find "MARVEL Tōkon".
 - **steam.js** — resolves a Steam app id/URL to the same game shape via `api.steamcmd.net`
   (steamdb.info itself returns 403 to automated requests; the appinfo data is the same).
@@ -280,6 +288,15 @@ Other invariants in `spoof.js`:
   only the first. What is still **not** verified is the last step — whether Discord then credits
   the quest. Until someone confirms that end to end, do not call macOS working; call it
   detectable-in-principle.
+- A detectable entry can list **no executables at all** - EA Sports FC 27
+  (`1531874756096295054`) had `"executables": []` and only third-party SKUs while its quest
+  was live. `normalize()` drops such entries, and no process name can match them, so nothing
+  here gets them detected. Tried and failed: starting the placeholder with the Steam SKU's
+  `SteamAppId`/`SteamGameId` in its environment (the variables did reach the process - read
+  back from its PEB - Discord just ignores them); that code was removed, do not re-add it.
+  Rich Presence over the IPC pipe was rejected by the user as a ban risk - do not add it
+  without asking. A custom entry on such an id is still worth keeping: `merge()` adds its
+  paths to Discord's entry once Discord lists executables, rather than hiding them.
 - Any executable in a game's detectable entry works — `cod.exe` and `cod26-cod.exe` both get
   Modern Warfare 4 detected. There is no "correct" one to pick.
 - A Steam launch entry's `executable` is frequently just a bootstrapper, with the real game

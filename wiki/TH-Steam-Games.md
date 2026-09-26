@@ -133,10 +133,46 @@ node src/index.js --start "Call of Duty: Modern Warfare 4" --exe "cod26-cod.exe"
   ของ Steam จึงเป็น URI ไม่ใช่ไฟล์ — EA SPORTS FC 27 มี `steam2ea://launchgame/4080220?...`
   อะไรที่อยู่ในรูป `scheme://...` จะถูกทิ้ง และถ้า launch config ไม่มีอย่างอื่นเลย จะได้ error ที่
   บอกชื่อ launcher นั้น Steam ไม่รู้ชื่อ process จริงของเกมพวกนี้ ต้องรอให้ entry ของ Discord
-  ใส่ executable ก่อน แล้วค่อย `--refresh`
+  ใส่ executable ก่อน แล้วค่อย `--refresh` — หรือพิมพ์ path ของ process เอง (ด้านล่าง)
+
+## เพิ่มเกมจาก path ของ process
+
+ถ้า Steam ไม่มีอะไรให้ใช้ — อย่าง EA SPORTS FC 27 ด้านบน — ให้พิมพ์ path ที่ process ของเกมรันอยู่แทน
+บนหน้าเว็บคือแถว **"…or type the game's process path yourself:"** ใต้ช่อง Steam ส่วน CLI:
+
+```bash
+node src/index.js --add-exe "EA SPORTS FC 27\FC27.exe"
+node src/index.js --add-exe "FC27.exe" --name "EA SPORTS FC 27"
+```
+
+- **รู้ชื่อโฟลเดอร์ก็ใส่ไปด้วย** Discord จับคู่ที่*ส่วนท้าย*ของ path และ entry ของซีรีส์นี้มีโฟลเดอร์ด้วย
+  (`ea sports fc 26/fc26.exe`) ถ้าใส่แค่ `FC27.exe` ก็น่าจะไม่ตรงเมื่อ Discord ใส่เกมนี้ในลิสต์
+  โฟลเดอร์จะถูกสร้างใหม่ใต้ `data/runtime/custom-<ชื่อ>/` เหมือน entry ของ Discord ทุกประการ
+- **ใส่ path เต็มได้** — `C:\Games\EA SPORTS FC 27\FC27.exe` ที่ copy มาจาก Task Manager จะถูกตัด
+  drive letter ออก เหลือส่วนที่เหลือ ซึ่งยังลงท้ายถูก
+- **ใช้ game id ของ Discord ถ้ามี** ในหน้าโปรไฟล์เกมบน Discord กด **⋯ → Copy Game ID** แล้วใส่นำหน้า
+  path — `1531874756096295054\EA SPORTS FC 27\FC27.exe` — หรือใส่ในช่องชื่อ / `--id` entry จะใช้ application id
+  ของ Discord และดึงชื่อกับไอคอนมาจาก Discord (`/applications/<id>/rpc` ไม่ต้อง login) Discord อาจรู้จักเกม
+  — หรือมี quest ของเกมนั้นแล้ว — ก่อนที่ entry ใน detectable list จะมี executable สักตัว อย่าง EA Sports FC 27
+  และตราบใดที่ entry ยังไม่มี executable **เครื่องมือนี้ทำอะไรให้ detect ไม่ได้เลย** (ลองใส่ `SteamAppId` ของ Steam
+  ใน environment ของ placeholder แล้ว Discord ไม่สนใจ) พอ entry ของ Discord มี executable แล้ว การเพิ่มใหม่จะถูก
+  พาไปที่ entry นั้น ส่วน entry ที่บันทึกไว้แล้วด้วย id เดียวกันจะแค่เพิ่ม path ของตัวเองเข้าไปใน entry ของ Discord
+  ไม่ได้บังของ Discord — จึงทิ้งไว้ได้ไม่เสียหาย
+- **ชื่อเกม** ค่าเริ่มต้นคือชื่อโฟลเดอร์ที่ไฟล์อยู่ (`EA SPORTS FC 27`) หรือชื่อไฟล์ที่ตัด `.exe` ออก
+  เพิ่ม path อื่นด้วยชื่อเดิมจะเป็น executable ตัวที่สองของเกมเดิม ไม่ใช่เกมใหม่
+- **ที่ใช้ไม่ได้:** `..`, ตัวอักษรที่ Windows ห้าม (`< > : " | ? *`), บน Windows ชื่อที่ไม่ลงท้าย
+  `.exe` และบน macOS/Linux ชื่อที่ลงท้าย `.exe` — เกมจริงบนระบบพวกนั้นไม่มีทางเป็น process `foo.exe`
+- **Discord มีอยู่แล้ว?** ถ้า path ตรงกับ — หรือเป็นส่วนท้ายของ — executable ในลิสต์ของ Discord
+  (`FC26.exe` → *EA Sports FC 26*) จะพาไปที่ entry นั้นเหมือนตอนเพิ่มจาก Steam
+  กด **Add anyway** / ใส่ `--force` ถ้าต้องการบันทึกของเราเองจริง ๆ
+
+เกมแบบนี้ติดป้าย `custom` และเก็บใน `data/custom-games.json` ร่วมกับเกมจาก Steam ข้อจำกัดด้านบนยังใช้
+เหมือนเดิม: entry ของเราเองไม่ได้อะไร มันจะมีผลก็ต่อเมื่อ path ที่พิมพ์ตรงกับที่อยู่ในลิสต์ของ **Discord**
+— Discord จับคู่ process กับลิสต์ของตัวเอง ไม่ใช่กับ id ของเครื่องมือนี้ — เช่นเกมที่ Discord เพิ่งใส่
+หลังจากดึง `data/games.json` มา
 
 ## อ่านต่อ
 
-- [คำสั่ง command line](TH-CLI-Reference) — `--add-steam`, `--force`, `--exe`
+- [คำสั่ง command line](TH-CLI-Reference) — `--add-steam`, `--add-exe`, `--force`, `--exe`
 - [การตั้งค่า](TH-Configuration) — `custom-games.json` อยู่ไหน
 - [หลักการทำงาน](TH-How-It-Works) — ทำไม executable ตัวไหนก็ใช้ได้

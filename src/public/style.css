@@ -159,6 +159,8 @@ main { max-width: 980px; margin: 0 auto; padding: 20px; display: flex; flex-dire
   background: var(--bg); border: 1px solid var(--line); color: var(--text); font-size: 13px;
 }
 .steam-add-row input:focus { outline: none; border-color: var(--accent); }
+.steam-add-row input.exe-name { flex: 0 1 220px; }
+.steam-add .exe-add-label { margin-top: 12px; }
 
 .running-list, .preset-list { display: flex; flex-direction: column; gap: 6px; }
 .row.live { border-color: #2f5d43; background: #23302a; }
@@ -268,6 +270,7 @@ main { max-width: 980px; margin: 0 auto; padding: 20px; display: flex; flex-dire
   .topbar { padding: 10px 12px; }
   .panel-head { flex-wrap: wrap; }
   .steam-add-row { flex-direction: column; }
+  .steam-add-row input.exe-name { flex: 1; }
   .btn { min-height: 44px; padding: 10px 16px; }
   .results { max-height: 50vh; }
 
