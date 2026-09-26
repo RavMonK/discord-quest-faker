@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.5.1 - 2026-09-26
+
+### Fixed
+
+- `--add-steam` saved a launcher URI as an executable name. EA SPORTS FC 27 (Steam 4080220)
+  launches through `steam2ea://launchgame/4080220?...`, which became a broken custom entry with a
+  "file" that no process could ever be named. `normalizeExecutable()` now drops anything shaped
+  `scheme://...` (new `isLauncherUri()`), and an app whose launch config holds only such URIs is
+  refused with an error naming the external launcher instead of the generic "no launch
+  executable".
+
+### Changed
+
+- Steam Games wiki (TH/EN) documents launcher-URI apps and why they cannot be added from Steam.
+
+### Testing
+
+- 93 tests (88 run, 5 skipped as OS-specific), including a new launcher-URI case.
+
+Full changelog: [v1.5.0...v1.5.1](https://github.com/RavMonK/discord-quest-faker/compare/v1.5.0...v1.5.1)
+
 ## 1.5.0 - 2026-09-19
 
 Quality pass across the whole project: accessibility and mobile support for the control panel, a

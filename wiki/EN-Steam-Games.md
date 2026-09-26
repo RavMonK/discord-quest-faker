@@ -132,6 +132,12 @@ Details worth knowing:
 - Names starting with `start_protected_game`, `bootstrapper`, or `launcher` are marked as
   launchers and sorted last.
 - An app with no launch executable produces an error rather than an empty entry.
+- **Launcher URIs are not executables.** Some games hand off to another launcher, so Steam's
+  `executable` is a URI rather than a file — EA SPORTS FC 27 has
+  `steam2ea://launchgame/4080220?...`. Anything shaped `scheme://...` is dropped, and an app
+  whose launch config holds nothing else is refused with an error naming the launcher. Steam
+  simply does not know the real process name for these games; wait for Discord's own entry to
+  list one, then `--refresh`.
 
 ## Read next
 
