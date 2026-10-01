@@ -7,6 +7,11 @@ const { createServer, findExecutableTwin } = require('../src/server');
 const { GameStore, OS_KEY } = require('../src/games');
 const { QuestQueue } = require('../src/queue');
 
+// Windows executables carry .exe; the other platforms' do not, and a ".exe" process path is
+// refused outright off Windows. Fixtures that mimic Discord's own entries have to follow suit,
+// or they describe a path that could never exist on the OS the test is running on.
+const exe = (base) => (OS_KEY === 'win32' ? base + '.exe' : base);
+
 async function fixture(t) {
   const store = Object.create(GameStore.prototype);
   store.games = Array.from({ length: 600 }, (_, i) => ({
@@ -18,7 +23,7 @@ async function fixture(t) {
   store.custom = [];
   store.detectable = [{
     id: '900', name: 'EA Sports FC 26', aliases: [],
-    executables: [{ name: 'ea sports fc 26/fc26.exe', os: OS_KEY }]
+    executables: [{ name: 'ea sports fc 26/' + exe('fc26'), os: OS_KEY }]
   }];
   store.saveCustom = () => {}; // never write a real custom-games.json from a test
   const calls = { start: 0, stop: 0, save: 0 };
@@ -164,17 +169,16 @@ test('findExecutableTwin: a typed path that is, or lacks the folder of, a Discor
 test('API: POST /api/custom adds a game by process path, or points at Discord\'s own entry', async t => {
   const f = await fixture(t);
   const post = (body) => f.request('/api/custom', { method: 'POST', headers: f.headers, body: JSON.stringify(body) });
-  const exe = (base) => (OS_KEY === 'win32' ? base + '.exe' : base);
 
   const bad = await post({ executable: '..\\x' });
   assert.equal(bad.status, 400);
 
+  // A path Discord already lists points at Discord's own entry instead of adding a duplicate -
+  // on every OS, since the twin is matched against the fixture built for the running platform.
   const twin = await post({ executable: 'EA SPORTS FC 26\\' + exe('FC26') });
-  if (OS_KEY === 'win32') {
-    assert.equal(twin.data.added, false);
-    assert.equal(twin.data.useInstead.id, '900');
-    assert.equal(f.store.custom.length, 0);
-  }
+  assert.equal(twin.data.added, false);
+  assert.equal(twin.data.useInstead.id, '900');
+  assert.equal(f.store.custom.length, 0);
 
   const added = await post({ executable: 'EA SPORTS FC 27\\' + exe('FC27') });
   assert.equal(added.status, 200);
