@@ -47,7 +47,7 @@ Everything is driven from a local control panel at <http://127.0.0.1:5011>, or f
 
 ## Requirements
 
-- **Node.js 18+**
+- **Node.js 22+**
 - The **desktop Discord client**, running
 - On Windows: the **.NET Framework** (present on virtually every machine) so `csc.exe` exists
 

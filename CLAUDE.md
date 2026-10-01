@@ -267,7 +267,7 @@ Other invariants in `spoof.js`:
 - Every endpoint that returns presets must go through `describePresets()`: config.json holds
   only id/name/executable, and handing those raw entries to the UI made `renderPresets` throw
   mid-render, blanking the panel until the next poll.
-- The detectable list is overwhelmingly Windows: 10,447 games have a win32 executable, 62 have
+- The detectable list is overwhelmingly Windows: 10,459 games have a win32 executable, 62 have
   darwin, 8 have linux. A Mac therefore sees almost nothing, and a Windows-only game never
   appears there at all. Running win32 entries on macOS was built once and then **deliberately
   removed**: it works technically (extensions mean nothing on Unix) but a `foo.exe` process on

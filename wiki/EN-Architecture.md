@@ -158,7 +158,7 @@ Discord scans processes, sees a path ending with one of its entries, and shows t
 - Discord maps a detected process to **one** application id, so running several executables of
   the same game gives no extra progress. The UI starts a single one, a preset stores one
   executable (never `"all"`), and there is no "start all" control anywhere.
-- The detectable list is overwhelmingly Windows: **10,447 / 62 / 8** (win32 / darwin / linux).
+- The detectable list is overwhelmingly Windows: **10,459 / 62 / 8** (win32 / darwin / linux).
 - **Any executable in a game's entry works** — both `cod.exe` and `cod26-cod.exe` get MW4 detected.
 - A Steam launch entry's `executable` is frequently just a bootstrapper, with the real binary
   named in its `arguments`.

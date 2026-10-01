@@ -152,7 +152,7 @@ Discord scan โปรเซส เห็น path ที่ลงท้ายต
 - Discord แม็ปโปรเซสเข้ากับ application id **หนึ่งอัน** — รันหลาย executable ของเกมเดียว
   ไม่ได้ progress เพิ่ม UI จึงรันตัวเดียว และ preset เก็บ executable ตัวเดียว (ไม่เก็บ `"all"`)
   ไม่มีปุ่ม "start all" ที่ไหนเลย
-- ลิสต์ detectable เอียงไปทาง Windows อย่างหนัก: **10,447 / 62 / 8** (win32 / darwin / linux)
+- ลิสต์ detectable เอียงไปทาง Windows อย่างหนัก: **10,459 / 62 / 8** (win32 / darwin / linux)
 - **executable ตัวไหนก็ใช้ได้** — `cod.exe` และ `cod26-cod.exe` ต่างก็ได้ MW4
 - `executable` ของ Steam มักเป็นแค่ bootstrapper ตัวเกมจริงอยู่ใน `arguments`
 - ชื่อของ Steam กับ Discord ไม่ตรงกัน และ **id ของ Discord เท่านั้นที่นับ quest** —

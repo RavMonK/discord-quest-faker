@@ -8,7 +8,7 @@
 
 | OS | Games with an executable | Placeholder owns a window | Status |
 |---|---|---|---|
-| **Windows** | 10,447 | ✅ yes (`compiled` tier) | Fully working, tested |
+| **Windows** | 10,459 | ✅ yes (`compiled` tier) | Supported · the test suite runs on Windows CI; the `compiled` tier is the one Discord detection was built around |
 | **macOS** | **62** | ✅ yes (`compiled` tier) | Needs the Xcode CLT · answers every signal Discord can read; whether it credits a quest is still unconfirmed |
 | **Linux** | 8 | ✅ yes (`compiled` tier) | Needs any C compiler and an X/XWayland session · the window is verified on X11; whether Discord credits a quest there is still unconfirmed |
 
@@ -38,7 +38,7 @@ very likely will not detect it. Installing the .NET Framework is the fix.
 
 Two big differences from Windows:
 
-1. **Discord's Unix-side list is tiny** — 62 games on macOS and 8 on Linux, against 10,447 on
+1. **Discord's Unix-side list is tiny** — 62 games on macOS and 8 on Linux, against 10,459 on
    Windows.
 2. **The macOS `compiled` tier needs the Xcode Command Line Tools** — `clang` plus the Cocoa
    SDK. Without them it falls through to the `node` tier, which **owns no window**, and says so
