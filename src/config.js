@@ -82,6 +82,14 @@ function load() {
   }
 
   const merged = deepMerge(DEFAULTS, userConfig);
+  // "presets": null (or a string) in a hand-edited file used to crash every caller that maps over
+  // it. Fall back to an empty list in memory only; the file is left alone until the UI saves.
+  for (const key of ['presets', 'queue']) {
+    if (!Array.isArray(merged[key])) {
+      console.error(`[config] "${key}" in config.json is not a list - ignoring it`);
+      merged[key] = [];
+    }
+  }
   merged.root = ROOT;
   merged.configPath = CONFIG_PATH;
   merged.gamesPath = path.resolve(ROOT, merged.gamesFile);

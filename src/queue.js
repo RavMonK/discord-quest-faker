@@ -138,10 +138,20 @@ class QuestQueue {
     if (index === -1) return { ok: false, reason: 'not in the queue' };
     // Removing the entry that is playing right now stops it too, otherwise the queue would be
     // left waiting on a session it can no longer show.
-    if (this.items[index].uid === this.currentUid) this.stopCurrent();
+    const removed = this.items[index];
+    if (removed.uid === this.currentUid) this.stopCurrent();
+    // The entry waiting out its gap is held by the timer, not by currentUid. Leaving that timer
+    // alone would launch an entry that is no longer in the list.
+    const wasNext = Boolean(this.timer) && this.nextUid === removed.uid;
+    const remaining = wasNext ? Math.max(0, (this.nextStartAt - Date.now()) / 1000) : 0;
     this.items.splice(index, 1);
     this.persist();
-    if (this.running && !this.currentKey && !this.timer) this.scheduleNext(this.randomDelaySeconds());
+    if (wasNext) {
+      this.clearTimer();
+      this.scheduleNext(remaining); // the next pending entry takes over what is left of the gap
+    } else if (this.running && !this.currentKey && !this.timer) {
+      this.scheduleNext(this.randomDelaySeconds());
+    }
     return { ok: true };
   }
 

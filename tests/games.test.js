@@ -268,3 +268,14 @@ test('withDiscordDetails: takes the name and icon from Discord, keeps a typed na
   assert.equal(plain.looked, false);
   assert.equal(urls.length, 2);
 });
+
+test('customGame: names that differ only by punctuation do not share an id', () => {
+  const a = customGame('x/Foo.exe', 'Foo: Bar', 'win32');
+  const b = customGame('x/Foo.exe', 'Foo Bar', 'win32');
+  const c = customGame('x/Foo.exe', 'Foo Bar!', 'win32');
+  assert.notEqual(a.id, b.id);
+  assert.notEqual(b.id, c.id);
+  assert.equal(b.id, 'custom-foo-bar'); // a plain name keeps the id it always had
+  assert.match(a.id, /^custom-[a-z0-9-]+$/); // still a safe directory name
+  assert.equal(customGame('x/Foo.exe', 'Foo: Bar', 'win32').id, a.id); // and it is stable
+});

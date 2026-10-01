@@ -209,3 +209,38 @@ test('durationOf: an entry with no time of its own falls back to the global sett
   queue.update(queue.items[0].uid, { durationMinutes: 7 });
   assert.equal(queue.durationOf(queue.items[0]), 7);
 });
+
+test('remove: taking out the entry waiting out its gap cancels its timer', async () => {
+  const { queue, spoofer } = build(['Alpha', 'Beta', 'Gamma']);
+  queue.config.queueDelayMinSeconds = 1;
+  queue.config.queueDelayMaxSeconds = 1;
+  ['100', '101', '102'].forEach((id, i) => queue.add({ id, name: ['Alpha', 'Beta', 'Gamma'][i] }));
+  queue.start();
+  const alpha = spoofer.started[0];
+  assert.equal(alpha.id, '100');
+  const [first, second] = queue.items;
+  spoofer.end(queue.currentKey || '100::default');
+  assert.equal(queue.nextUid, second.uid, 'Beta should be waiting on its gap');
+
+  queue.remove(second.uid);
+  // the timer must now point at Gamma, not still launch the Beta that was just deleted
+  assert.equal(queue.items.find((i) => i.uid === queue.nextUid).name, 'Gamma');
+  await sleep(1300);
+  assert.deepEqual(spoofer.started.map((s) => s.id), ['100', '102']);
+  assert.ok(first);
+  queue.stop();
+});
+
+test('remove: removing the last waiting entry leaves no timer behind', async () => {
+  const { queue, spoofer } = build(['Alpha', 'Beta']);
+  queue.config.queueDelayMinSeconds = 1;
+  queue.config.queueDelayMaxSeconds = 1;
+  queue.add({ id: '100', name: 'Alpha' });
+  queue.add({ id: '101', name: 'Beta' });
+  queue.start();
+  spoofer.end('100::default');
+  queue.remove(queue.items[1].uid);
+  await sleep(1300);
+  assert.equal(spoofer.started.length, 1, 'a removed entry must never start');
+  assert.equal(queue.timer, null);
+});
