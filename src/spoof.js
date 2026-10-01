@@ -25,6 +25,11 @@ const MAX_RESTARTS = 500;
 // covers a one-off death; a third means the tier itself does not work on this machine.
 const MAX_TIER_DEATHS = 3;
 
+// The longest auto-stop a session can hold. setTimeout keeps its delay in a 32-bit signed
+// integer of milliseconds, so 2147483647 ms is the most any timer can ever wait - this is the
+// last whole number of minutes below that, about 24.8 days. See Spoofer.durationMs().
+const MAX_DURATION_MINUTES = Math.floor((2 ** 31 - 1) / 60000);
+
 // Bumped whenever the C#, Objective-C or C source below changes, so every cached placeholder
 // is rebuilt once.
 const PLACEHOLDER_BUILD = 4;
@@ -1268,6 +1273,51 @@ class Spoofer {
   }
 
   /**
+   * A requested duration as whole minutes a session can actually hold, or 0 for "until stopped".
+   *
+   * A duration has to be checked *before* it becomes a millisecond count, not after: setTimeout
+   * stores its delay in a 32-bit signed integer of milliseconds, so 100000 minutes (6e9 ms) does
+   * not mean "very far in the future" - Node clamps it to 1 and fires at once, printing a
+   * TimeoutOverflowWarning while the session dies the instant it started. Clamping to the last
+   * whole minute that fits turns the same request into a ~24.8 day session instead.
+   *
+   * Everything that is not a whole number of minutes - NaN, Infinity, a negative, 1.5, or the
+   * string "abc" in a hand-edited config.json - becomes 0, which is what no duration already
+   * means everywhere else in this file. The window countdown and the UI read this same value,
+   * so a session can never claim one duration and stop on another.
+   */
+  static durationMinutes(minutes) {
+    const n = Number(minutes);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(Math.round(n), MAX_DURATION_MINUTES);
+  }
+
+  /**
+   * The auto-stop delay in milliseconds, or 0 for a session that never stops on its own.
+   * Clamped separately so no caller can reach setTimeout with an unvalidated number.
+   */
+  static durationMs(minutes) {
+    return Spoofer.durationMinutes(minutes) * 60000;
+  }
+
+  /**
+   * Escape text for use inside a plist's XML.
+   *
+   * The executable name comes from Discord's API (third-party) or from a process path the user
+   * typed by hand, so it is arbitrary text. `materialize()` already rejects `< > : " | ? *`, but
+   * not `&` - and one unescaped ampersand is enough to make the whole Info.plist invalid XML
+   * (`plutil -lint`: "Encountered unknown ampersand-escape sequence"), which macOS then refuses
+   * to load. The failure is silent: the bundle is built, the copy is made, and nothing appears.
+   */
+  static escapeXml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')   // first, or the escapes below would be escaped again
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /**
    * Info.plist for a placeholder bundle.
    *
    * There is deliberately no LSBackgroundOnly here: it used to be set, and it stops the bundle
@@ -1276,13 +1326,16 @@ class Spoofer {
    * NSWorkspace's runningApplications the way a game does. The Node tier ignores all of it.
    */
   static bundlePlist(binaryName, gameId) {
+    // The name is escaped but not rejected: it has to keep matching the file inside the bundle
+    // for the process path to impersonate the game, so the plist has to carry it verbatim.
+    const name = Spoofer.escapeXml(binaryName);
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
       '<plist version="1.0"><dict>',
-      '  <key>CFBundleExecutable</key><string>' + binaryName + '</string>',
-      '  <key>CFBundleName</key><string>' + binaryName + '</string>',
-      '  <key>CFBundleIdentifier</key><string>com.discordquestfaker.g' + gameId + '</string>',
+      '  <key>CFBundleExecutable</key><string>' + name + '</string>',
+      '  <key>CFBundleName</key><string>' + name + '</string>',
+      '  <key>CFBundleIdentifier</key><string>com.discordquestfaker.g' + Spoofer.escapeXml(gameId) + '</string>',
       '  <key>CFBundlePackageType</key><string>APPL</string>',
       '  <key>NSPrincipalClass</key><string>NSApplication</string>',
       '  <key>NSHighResolutionCapable</key><true/>',
@@ -1481,7 +1534,10 @@ class Spoofer {
       path: null,
       pid: null,
       startedAt: Date.now(),
-      durationMinutes: Number(requested) > 0 ? Number(requested) : 0,
+      // Clamped here, not only at the setTimeout below, because this value is also what the
+      // placeholder window counts down and what the panel shows - a session that claimed 100000
+      // minutes while its timer stopped after one would look like a bug rather than a limit.
+      durationMinutes: Spoofer.durationMinutes(requested),
       child: null,
       timer: null,
       stopping: false,
@@ -1656,13 +1712,14 @@ class Spoofer {
       return { ok: false, executable: exe.name, reason: err.message };
     }
 
-    if (session.durationMinutes > 0) {
+    const durationMs = Spoofer.durationMs(session.durationMinutes);
+    if (durationMs > 0) {
       session.timer = setTimeout(() => {
         console.log('[spoof] ' + game.name + ' / ' + exe.name + ': ' + session.durationMinutes + ' min reached - stopping');
         // the queue runner tells "its timer ran out" from "someone pressed Stop" by this
         session.endReason = 'duration';
         this.stop(key);
-      }, session.durationMinutes * 60000);
+      }, durationMs);
       if (session.timer.unref) session.timer.unref();
     }
 
@@ -1796,5 +1853,9 @@ class Spoofer {
     return Array.from(this.running.values()).map((s) => this.describe(s));
   }
 }
+
+// Re-exported so server.js validates against the same ceiling spoof.js clamps to, rather than
+// repeating the arithmetic - two numbers that must never drift apart.
+Spoofer.MAX_DURATION_MINUTES = MAX_DURATION_MINUTES;
 
 module.exports = { Spoofer };

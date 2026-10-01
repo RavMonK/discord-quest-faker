@@ -136,6 +136,28 @@ test('API: authenticated queue actions persist only through the injected save', 
   assert.equal(f.calls.save, 2);
 });
 
+test('API: rejects a duration that is not a whole number of minutes within the timer\'s limit', async t => {
+  // A duration becomes a setTimeout delay, and that delay lives in a 32-bit signed integer of
+  // milliseconds - so 100000 minutes is not a very long session, it is one that ends at once.
+  // Refused at the edge with a reason, the same way limit/offset are.
+  const f = await fixture(t);
+  const post = (url, body) => f.request(url, { method: 'POST', headers: f.headers, body: JSON.stringify(body) });
+  // JSON has no Infinity, so the overflow cases travel as strings - "Infinity" and "1e309" are
+  // what a client actually sends, and Number() turns both back into a non-safe integer.
+  for (const bad of [-1, 1.5, 'abc', 'Infinity', '1e309', 100000, Number.MAX_SAFE_INTEGER]) {
+    for (const url of ['/api/start', '/api/queue']) {
+      const result = await post(url, { id: '1', durationMinutes: bad });
+      assert.equal(result.status, 400, url + ' ' + String(bad));
+      assert.match(result.data.reason, /durationMinutes must be a whole number of minutes/);
+    }
+  }
+  assert.equal(f.calls.start, 0); // nothing was launched by a rejected request
+  // 0 still means "run until stopped", and a normal duration is passed through untouched
+  assert.equal((await post('/api/start', { id: '1', durationMinutes: 0 })).status, 200);
+  assert.equal((await post('/api/queue', { id: '1', durationMinutes: 30 })).status, 200);
+  assert.equal(f.calls.start, 1);
+});
+
 test('API: refuses a listener configuration exposed to the network', () => {
   assert.throws(() => createServer({ config: { host: '0.0.0.0' } }), /host must be/);
 });
