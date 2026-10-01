@@ -148,6 +148,18 @@ test('durationMinutes: keeps a sane duration, and refuses everything that is not
   }
 });
 
+test('durationMs: a fraction of a minute still stops on its own', () => {
+  // durationMinutes() rounds, so a sub-minute request displays as 0 - and 0 means "run until
+  // stopped". If the timer were computed from the displayed value, a test asking for a session
+  // that ends in 180 ms would wait forever, which is exactly how the Linux timer test hung.
+  // The timer reads the requested value instead, so the two can differ on purpose.
+  assert.equal(Spoofer.durationMinutes(0.003), 0);
+  assert.equal(Spoofer.durationMs(0.003), 180);
+  assert.equal(Spoofer.durationMs(0.5), 30000);
+  // A whole minute behaves the same either way - the display and the delay cannot drift apart.
+  assert.equal(Spoofer.durationMs(Spoofer.durationMinutes(45)), 45 * 60000);
+});
+
 test('bundlePlist: escapes XML, because an unescaped & is what made macOS reject the bundle', () => {
   // materialize() rejects `< > : " | ? *` but not `&`, and the name comes from Discord's API or a
   // path the user typed - so "Ben & Jerry's" reached the plist verbatim and plutil called it

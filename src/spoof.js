@@ -29,6 +29,7 @@ const MAX_TIER_DEATHS = 3;
 // integer of milliseconds, so 2147483647 ms is the most any timer can ever wait - this is the
 // last whole number of minutes below that, about 24.8 days. See Spoofer.durationMs().
 const MAX_DURATION_MINUTES = Math.floor((2 ** 31 - 1) / 60000);
+const MAX_DURATION_MS = 2 ** 31 - 1;
 
 // Bumped whenever the C#, Objective-C or C source below changes, so every cached placeholder
 // is rebuilt once.
@@ -1273,18 +1274,9 @@ class Spoofer {
   }
 
   /**
-   * A requested duration as whole minutes a session can actually hold, or 0 for "until stopped".
-   *
-   * A duration has to be checked *before* it becomes a millisecond count, not after: setTimeout
-   * stores its delay in a 32-bit signed integer of milliseconds, so 100000 minutes (6e9 ms) does
-   * not mean "very far in the future" - Node clamps it to 1 and fires at once, printing a
-   * TimeoutOverflowWarning while the session dies the instant it started. Clamping to the last
-   * whole minute that fits turns the same request into a ~24.8 day session instead.
-   *
-   * Everything that is not a whole number of minutes - NaN, Infinity, a negative, 1.5, or the
-   * string "abc" in a hand-edited config.json - becomes 0, which is what no duration already
-   * means everywhere else in this file. The window countdown and the UI read this same value,
-   * so a session can never claim one duration and stop on another.
+   * The duration the panel and the placeholder window display: whole minutes, or 0 for "until
+   * stopped". Sub-minute requests round to a whole minute so a session never claims one
+   * duration and stops on another.
    */
   static durationMinutes(minutes) {
     const n = Number(minutes);
@@ -1293,11 +1285,23 @@ class Spoofer {
   }
 
   /**
-   * The auto-stop delay in milliseconds, or 0 for a session that never stops on its own.
-   * Clamped separately so no caller can reach setTimeout with an unvalidated number.
+   * The delay actually handed to setTimeout, in milliseconds.
+   *
+   * A duration has to be checked *before* it becomes a millisecond count, not after: setTimeout
+   * stores its delay in a 32-bit signed integer of milliseconds, so 100000 minutes (6e9 ms) does
+   * not mean "very far in the future" - Node clamps it to 1 and fires at once, printing a
+   * TimeoutOverflowWarning while the session dies the instant it started. Clamping to the last
+   * whole minute that fits turns the same request into a ~24.8 day session instead.
+   *
+   * This keeps sub-minute precision that durationMinutes() rounds away on purpose. A panel can
+   * only ask for whole minutes, but a test needs a session that ends in a fraction of a second
+   * rather than waiting out a real minute, and rounding that to 0 would turn "very soon" into
+   * "never" - the same 0 that means "run until stopped" everywhere else in this file.
    */
   static durationMs(minutes) {
-    return Spoofer.durationMinutes(minutes) * 60000;
+    const n = Number(minutes);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(Math.round(n * 60000), MAX_DURATION_MS);
   }
 
   /**
@@ -1537,7 +1541,10 @@ class Spoofer {
       // Clamped here, not only at the setTimeout below, because this value is also what the
       // placeholder window counts down and what the panel shows - a session that claimed 100000
       // minutes while its timer stopped after one would look like a bug rather than a limit.
+      // The timer below reads this same value through durationMs(), which keeps the fraction a
+      // sub-minute request needs; rounding it away here would read as "no duration at all".
       durationMinutes: Spoofer.durationMinutes(requested),
+      requestedMinutes: requested,
       child: null,
       timer: null,
       stopping: false,
@@ -1712,7 +1719,9 @@ class Spoofer {
       return { ok: false, executable: exe.name, reason: err.message };
     }
 
-    const durationMs = Spoofer.durationMs(session.durationMinutes);
+    // The requested value, not the rounded one the panel shows: a sub-minute request has to keep
+    // its fraction here or it would become 0 and the timer below would never be set at all.
+    const durationMs = Spoofer.durationMs(session.requestedMinutes);
     if (durationMs > 0) {
       session.timer = setTimeout(() => {
         console.log('[spoof] ' + game.name + ' / ' + exe.name + ': ' + session.durationMinutes + ' min reached - stopping');
