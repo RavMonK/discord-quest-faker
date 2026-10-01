@@ -122,6 +122,53 @@ test('tiers: every platform ends at node, and macOS never offers the system plac
   }
 });
 
+test('durationMs: a huge duration is clamped to what setTimeout can hold, not to 1 ms', () => {
+  // The bug this guards: setTimeout keeps its delay in a 32-bit signed integer of milliseconds, so
+  // 100000 minutes (6e9 ms) was not "far in the future" - Node clamped it to 1 and the session died
+  // the instant it started, with a TimeoutOverflowWarning as the only sign.
+  assert.equal(Spoofer.durationMs(100000) <= 2147483647, true);
+  assert.ok(Spoofer.durationMs(100000) > 60000 * 60 * 24); // still days, not milliseconds
+  // Node's own clamp turns an over-limit delay into 1, so anything above 1 proves we clamped first.
+  const t = setTimeout(() => {}, Spoofer.durationMs(100000));
+  const scheduled = t._idleTimeout;
+  t.unref();
+  clearTimeout(t);
+  assert.equal(scheduled, Spoofer.durationMs(100000));
+  assert.ok(scheduled > 60000 * 60 * 24);
+});
+
+test('durationMinutes: keeps a sane duration, and refuses everything that is not one', () => {
+  assert.equal(Spoofer.durationMinutes(30), 30);
+  assert.equal(Spoofer.durationMinutes('30'), 30); // the UI and config.json both send strings
+  assert.equal(Spoofer.durationMinutes(30.4), 30); // a fraction of a minute is rounded, not refused
+  // 0 means "run until stopped" everywhere else in this file, so it has to stay 0 here
+  for (const bad of [0, -5, NaN, Infinity, -Infinity, 1e309, 'abc', null, undefined, {}, []]) {
+    assert.equal(Spoofer.durationMinutes(bad), 0, String(bad));
+    assert.equal(Spoofer.durationMs(bad), 0, String(bad));
+  }
+});
+
+test('bundlePlist: escapes XML, because an unescaped & is what made macOS reject the bundle', () => {
+  // materialize() rejects `< > : " | ? *` but not `&`, and the name comes from Discord's API or a
+  // path the user typed - so "Ben & Jerry's" reached the plist verbatim and plutil called it
+  // invalid, which macOS answers by refusing to load the bundle at all.
+  const plist = Spoofer.bundlePlist("Ben & Jerry's Game", 'a&b');
+  assert.match(plist, /<key>CFBundleExecutable<\/key><string>Ben &amp; Jerry's Game<\/string>/);
+  assert.match(plist, /<key>CFBundleName<\/key><string>Ben &amp; Jerry's Game<\/string>/);
+  assert.match(plist, /<key>CFBundleIdentifier<\/key><string>com\.discordquestfaker\.ga&amp;b<\/string>/);
+  // no bare ampersand may survive anywhere in the document
+  const bare = plist.replace(/&(amp|lt|gt|quot|#\d+|#x[0-9a-f]+);/g, '');
+  assert.equal(bare.includes('&'), false);
+});
+
+test('escapeXml: escapes the ampersand before the entities it would otherwise break', () => {
+  assert.equal(Spoofer.escapeXml('a & b'), 'a &amp; b');
+  assert.equal(Spoofer.escapeXml('<x>'), '&lt;x&gt;');
+  assert.equal(Spoofer.escapeXml('say "hi"'), 'say &quot;hi&quot;');
+  assert.equal(Spoofer.escapeXml('&lt;'), '&amp;lt;'); // not double-unescaped into a real tag
+  assert.equal(Spoofer.escapeXml('plain'), 'plain');
+});
+
 test('bundlePlist: declares a GUI app - LSBackgroundOnly would stop the window ever appearing', () => {
   const plist = Spoofer.bundlePlist('Foo', '42');
   assert.match(plist, /<key>CFBundleExecutable<\/key><string>Foo<\/string>/);

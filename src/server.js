@@ -128,6 +128,29 @@ function findExecutableTwin(detectable, game) {
   return best;
 }
 
+/**
+ * Validate a `durationMinutes` field the way `/api/games` validates limit and offset: a bad value
+ * is refused with a reason the caller can read, rather than coerced into something surprising.
+ *
+ * `undefined`/`null` means "not supplied", which the spoofer resolves to the configured default.
+ * Anything else must be a whole number of minutes from 0 up - 0 being "run until stopped". The
+ * ceiling is not arbitrary: it is the last minute whose millisecond count still fits the 32-bit
+ * integer setTimeout keeps its delay in, past which Node clamps the delay to 1 and the session
+ * ends the instant it starts.
+ */
+function durationField(value) {
+  if (value === undefined || value === null) return { minutes: undefined };
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 0 || n > Spoofer.MAX_DURATION_MINUTES) {
+    return {
+      minutes: undefined,
+      error: 'durationMinutes must be a whole number of minutes from 0 to ' + Spoofer.MAX_DURATION_MINUTES
+        + ' (0 = run until stopped)'
+    };
+  }
+  return { minutes: n };
+}
+
 function serveStatic(req, res, urlPath) {
   const relative = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
   const filePath = path.join(PUBLIC_DIR, relative);
@@ -379,10 +402,12 @@ function createServer({ config, store, spoofer, queue }) {
         const body = await readBody(req);
         const game = store.resolve(body.id || body.name);
         if (!game) return sendJson(res, 404, { ok: false, reason: 'game not found' });
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
         // body.executable: "all" | executable name | array of names | index | omitted
         const result = spoofer.start(game, {
           executable: body.executable,
-          durationMinutes: body.durationMinutes
+          durationMinutes: duration.minutes
         });
         return sendJson(res, result.ok ? 200 : 409, Object.assign({}, result, { running: spoofer.list() }));
       }
@@ -407,17 +432,21 @@ function createServer({ config, store, spoofer, queue }) {
 
       if (route === '/api/queue' && req.method === 'POST') {
         const body = await readBody(req);
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
         const result = queue.add({
           id: body.id || body.name,
           executable: body.executable,
-          durationMinutes: body.durationMinutes
+          durationMinutes: duration.minutes
         });
         return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, { queue: queue.describe() }));
       }
 
       if (route === '/api/queue' && req.method === 'PATCH') {
         const body = await readBody(req);
-        const result = queue.update(body.uid, body);
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
+        const result = queue.update(body.uid, Object.assign({}, body, { durationMinutes: duration.minutes }));
         return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, { queue: queue.describe() }));
       }
 
@@ -473,12 +502,14 @@ function createServer({ config, store, spoofer, queue }) {
         if (config.presets.some((p) => String(p.id) === game.id)) {
           return sendJson(res, 200, { ok: true, presets: describePresets() });
         }
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
         const preferred = Spoofer.select(game, body.executable)[0];
         config.presets.push({
           id: game.id,
           name: game.name,
           executable: body.executable || (preferred ? preferred.name : undefined),
-          durationMinutes: Number(body.durationMinutes) > 0 ? Number(body.durationMinutes) : 0
+          durationMinutes: duration.minutes || 0
         });
         if (!configModule.save(config)) {
           return sendJson(res, 500, { ok: false, reason: 'config.json is not valid JSON - fix it and restart', presets: describePresets() });
