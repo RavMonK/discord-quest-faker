@@ -279,3 +279,35 @@ test('customGame: names that differ only by punctuation do not share an id', () 
   assert.match(a.id, /^custom-[a-z0-9-]+$/); // still a safe directory name
   assert.equal(customGame('x/Foo.exe', 'Foo: Bar', 'win32').id, a.id); // and it is stable
 });
+
+test('GameStore: reads both game files with a UTF-8 BOM, and gives every entry aliases', () => {
+  const config = tmpConfig();
+  const bom = '\uFEFF';
+  const exe = [{ name: 'a/a.exe', os: 'win32', isLauncher: false }];
+  // no `aliases` on either entry: an older cache or a hand edit looks like this
+  fs.writeFileSync(config.gamesPath, bom + JSON.stringify({ games: [{ id: '1', name: 'Alpha', executables: exe }] }));
+  fs.writeFileSync(config.customPath, bom + JSON.stringify({ games: [{ id: 'custom-b', name: 'Beta', executables: exe }] }));
+
+  const store = new GameStore(config);
+  assert.deepEqual(store.detectable.map((g) => g.id), ['1']);
+  assert.deepEqual(store.custom.map((g) => g.id), ['custom-b']);
+  // these used to throw "Cannot read properties of undefined (reading 'some')"
+  assert.equal(store.resolve('Alpha').id, '1');
+  assert.equal(store.resolve('nothing-like-this'), null);
+  assert.equal(store.search('beta', { onlyThisOs: false }).total, 1);
+});
+
+test('GameStore: an entry with no executables list is skipped instead of breaking the load', () => {
+  const config = tmpConfig();
+  fs.writeFileSync(config.gamesPath, JSON.stringify({ games: [{ id: '1', name: 'Broken' }, null] }));
+  const store = new GameStore(config);
+  assert.equal(store.detectable.length, 0);
+});
+
+test('customGame: a macOS bundle path is named after the .app, not the MacOS folder', () => {
+  const game = customGame('Games/Bar Game.app/Contents/MacOS/BarGame', '', 'darwin');
+  assert.equal(game.name, 'Bar Game');
+  assert.equal(game.id, 'custom-bar-game');
+  assert.equal(customGame('Foo.app/Contents/MacOS/Foo', '', 'darwin').name, 'Foo');
+  assert.equal(customGame('Dir/thing', '', 'darwin').name, 'Dir'); // no .app: unchanged
+});

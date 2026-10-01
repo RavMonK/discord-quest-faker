@@ -73,6 +73,23 @@ function normalize(rawList) {
 }
 
 /**
+ * Read a JSON file the way an editor on Windows may have saved it: with a UTF-8 BOM, which
+ * JSON.parse rejects outright. Both game files go through here so neither can be the odd one out.
+ */
+function readJsonFile(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+/** A hand-edited or older cache entry may lack `aliases`; every search reads it unguarded. */
+function withDefaults(game) {
+  return Array.isArray(game.aliases) ? game : Object.assign({}, game, { aliases: [] });
+}
+
+function usable(game) {
+  return Boolean(game) && typeof game === 'object' && Array.isArray(game.executables);
+}
+
+/**
  * Lowercase and drop accents, so "marvel tokon" finds "MARVEL Tōkon" and "pokemon" finds
  * "Pokémon". Without this, any game whose real name carries a diacritic is unsearchable.
  */
@@ -150,7 +167,11 @@ function customGame(input, name, osKey = OS_KEY, gameId = '') {
   if (id && !DISCORD_ID.test(id)) throw new Error('"' + id + '" is not a Discord game id (Copy Game ID gives 17-20 digits)');
 
   const relative = parts.join('/');
-  const fallback = parts.length > 1 ? parts[parts.length - 2] : parts[0].replace(/\.[^.]+$/, '');
+  // A macOS bundle path ends Foo.app/Contents/MacOS/Foo, so the folder holding the binary is
+  // always "MacOS". The game is the .app, not that folder.
+  const bundle = parts.find((part) => /\.app$/i.test(part));
+  const fallback = bundle ? bundle.replace(/\.app$/i, '')
+    : parts.length > 1 ? parts[parts.length - 2] : parts[0].replace(/\.[^.]+$/, '');
   const title = typedName.slice(0, 100) || fallback;
 
   // Spoofer.gameDirectory() only accepts [a-z0-9._-], so a name with nothing Latin in it
@@ -227,10 +248,10 @@ class GameStore {
         this.merge();
         return false;
       }
-      const parsed = JSON.parse(fs.readFileSync(this.config.gamesPath, 'utf8'));
+      const parsed = readJsonFile(this.config.gamesPath);
       const games = Array.isArray(parsed) ? parsed : parsed.games;
       if (!Array.isArray(games)) return false;
-      this.detectable = games;
+      this.detectable = games.filter(usable).map(withDefaults);
       this.fetchedAt = (parsed && parsed.fetchedAt) || null;
       this.source = 'cache';
       this.merge();
@@ -246,10 +267,10 @@ class GameStore {
   loadCustom() {
     try {
       if (!fs.existsSync(this.config.customPath)) return;
-      const parsed = JSON.parse(fs.readFileSync(this.config.customPath, 'utf8').replace(/^﻿/, ''));
+      const parsed = readJsonFile(this.config.customPath);
       const games = Array.isArray(parsed) ? parsed : parsed.games;
       if (!Array.isArray(games)) return;
-      this.custom = games.filter((g) => g && g.id && Array.isArray(g.executables));
+      this.custom = games.filter((g) => usable(g) && g.id).map(withDefaults);
       if (this.custom.length) console.log(`[games] loaded ${this.custom.length} custom game(s)`);
     } catch (err) {
       console.error(`[games] could not read custom games: ${err.message}`);
@@ -328,7 +349,7 @@ class GameStore {
       const games = normalize(raw);
       if (games.length === 0) throw new Error('API returned an empty game list');
 
-      this.detectable = games;
+      this.detectable = games.filter(usable).map(withDefaults);
       this.fetchedAt = new Date().toISOString();
       this.source = 'api';
       this.merge();
