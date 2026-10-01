@@ -48,9 +48,10 @@ constructor argument precisely so a test never writes the real `config.json`). I
 `load()`/`save()` (they hardcode the real `config.json` path under the project root — there is no
 way to point them at a temp file, so testing them would risk clobbering the user's actual config),
 anything that spawns a real placeholder or invokes `csc.exe` (OS/environment-dependent, exactly
-what the manual OS checks below are for), and the `src/public/` frontend (plain browser script
+what the manual OS checks below are for), and the DOM side of the `src/public/` frontend (plain browser script
 with no module exports and no DOM in the test process — simulating one would mean adding a
-dependency like jsdom, which breaks the zero-npm-deps rule). Behaviour beyond that boundary is
+dependency like jsdom, which breaks the zero-npm-deps rule). Only its API helper is tested, by
+running the top of `app.js` in a `vm` context (`tests/frontend-api.test.js`). Behaviour beyond that boundary is
 still verified against the OS, not through unit tests. The checks that matter:
 
 ```powershell
@@ -117,9 +118,10 @@ there is the OS refusing to run the file at all.
 
 Six modules under `src/`, wired together in `index.js`:
 
-- **config.js** — loads/saves `config.json`. Two rules encoded here: BOM-prefixed JSON is
-  tolerated (Windows editors write it), and a file that fails to parse is never overwritten
-  (`save()` returns null instead). CLI overrides like `--port`/`--headless` are applied to the
+- **config.js** — loads/saves `config.json`. Three rules encoded here: BOM-prefixed JSON is
+  tolerated (Windows editors write it), a file that fails to parse is never overwritten
+  (`save()` returns null instead), and a `presets`/`queue` that is not a list falls back to an
+  empty one in memory (the file is left alone). CLI overrides like `--port`/`--headless` are applied to the
   live config only; `fileState` holds what belongs on disk so flags never leak into the file.
   Only `EDITABLE_KEYS` are written back.
 - **games.js** — `GameStore` keeps three lists: `detectable` (from Discord), `custom` (added by
@@ -147,7 +149,8 @@ Six modules under `src/`, wired together in `index.js`:
   start the next one. Shutdown stops the queue first and with the **synchronous** kill, since an
   async `taskkill` never runs once `process.exit` is on its way.
 - **server.js** — zero-dependency `http` server, static files from `src/public/`, JSON API under
-  `/api/`: `state`, `games`, `custom` (POST/DELETE), `refresh`, `start`, `stop`, `stop-all`,
+  `/api/`: `session` (GET, hands out the per-process token every other call must send as
+  `x-dqf-token`; Host and Origin must be loopback), `state`, `games`, `custom` (POST/DELETE), `refresh`, `start`, `stop`, `stop-all`,
   `presets` (POST/DELETE), and `queue` (POST/PATCH/DELETE) with `queue/move`, `queue/start`,
   `queue/stop`, `queue/skip`, `queue/settings`. `stop-all` stops the queue too - otherwise it
   starts the next game seconds later and the button looks broken.
@@ -272,7 +275,7 @@ Other invariants in `spoof.js`:
   appears there at all. Running win32 entries on macOS was built once and then **deliberately
   removed**: it works technically (extensions mean nothing on Unix) but a `foo.exe` process on
   macOS is impossible for a real game, so it is a trivially detectable spoofing signal. Do not
-  reintroduce it. The macOS placeholder also has no window, unlike the Windows one.
+  reintroduce it. (The macOS placeholder owns a window only in the `compiled` tier; the Node fallback has none.)
 - What is verified on Linux: the compiled placeholder really maps a window on X11 (480x160,
   named and classed after the game, `_NET_WM_PID` matching its pid), `/proc/<pid>/exe` is the
   fake game path, and closing the window ends the session. What is **not** verified is whether
