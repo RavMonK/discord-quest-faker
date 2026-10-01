@@ -128,6 +128,29 @@ function findExecutableTwin(detectable, game) {
   return best;
 }
 
+/**
+ * Validate a `durationMinutes` field the way `/api/games` validates limit and offset: a bad value
+ * is refused with a reason the caller can read, rather than coerced into something surprising.
+ *
+ * `undefined`/`null` means "not supplied", which the spoofer resolves to the configured default.
+ * Anything else must be a whole number of minutes from 0 up - 0 being "run until stopped". The
+ * ceiling is not arbitrary: it is the last minute whose millisecond count still fits the 32-bit
+ * integer setTimeout keeps its delay in, past which Node clamps the delay to 1 and the session
+ * ends the instant it starts.
+ */
+function durationField(value) {
+  if (value === undefined || value === null) return { minutes: undefined };
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 0 || n > Spoofer.MAX_DURATION_MINUTES) {
+    return {
+      minutes: undefined,
+      error: 'durationMinutes must be a whole number of minutes from 0 to ' + Spoofer.MAX_DURATION_MINUTES
+        + ' (0 = run until stopped)'
+    };
+  }
+  return { minutes: n };
+}
+
 function serveStatic(req, res, urlPath) {
   const relative = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
   const filePath = path.join(PUBLIC_DIR, relative);
@@ -272,7 +295,17 @@ function createServer({ config, store, spoofer, queue }) {
           return sendJson(res, 400, { ok: false, reason: 'limit must be an integer from 1 to 500; offset must be a non-negative integer' });
         }
         const onlyThisOs = url.searchParams.get('all') !== '1';
-        return sendJson(res, 200, store.search(url.searchParams.get('q') || '', { limit, offset, onlyThisOs }));
+        const query = url.searchParams.get('q') || '';
+        const page = store.search(query, { limit, offset, onlyThisOs });
+        // The panel searches Discord's whole list and filters by OS itself, so that a game
+        // Discord only knows for another system reads as "not runnable here" rather than
+        // "no match". It cannot tell that from one page, so say how many of the matches are
+        // runnable on this OS - the same list restricted to this OS, which is what the
+        // default (onlyThisOs) call would have returned.
+        if (!onlyThisOs) {
+          page.runnableHere = store.search(query, { limit: 1, onlyThisOs: true }).total;
+        }
+        return sendJson(res, 200, page);
       }
 
       if (route === '/api/custom' && req.method === 'POST') {
@@ -287,16 +320,20 @@ function createServer({ config, store, spoofer, queue }) {
             return sendJson(res, 400, { ok: false, reason: err.message });
           }
 
+          const typed = game.executables[0].name;
           const known = findExecutableTwin(store.detectable, game);
           if (known && !body.force) {
             const wants = Spoofer.candidates(known).map((e) => e.name);
-            console.log('[custom] ' + game.executables[0].name + ' matches detectable "' + known.name + '" - not adding');
+            console.log('[custom] ' + typed + ' matches detectable "' + known.name + '" - not adding');
             return sendJson(res, 200, {
               ok: true,
               added: false,
               useInstead: { id: known.id, name: known.name, executables: wants },
-              note: 'Discord already tracks ' + game.executables[0].name + ' as "' + known.name
-                + '" (' + wants.join(', ') + ') - opening that entry',
+              // The typed path is not the one Discord looks for, so it is not what got saved -
+              // saying otherwise would let the panel claim a path was set when it was dropped.
+              note: 'Your path ' + typed + ' was not added - Discord does not detect it. '
+                + 'Discord detects "' + known.name + '" as ' + wants.join(', ')
+                + ', so that entry is shown instead',
               games: store.meta()
             });
           }
@@ -304,15 +341,29 @@ function createServer({ config, store, spoofer, queue }) {
           // the id and path are settled; only the name and icon can still come from Discord
           const lookup = await withDiscordDetails(game);
           const saved = store.addCustom(lookup.game, { merge: true });
-          console.log('[custom] added ' + saved.name + ' (' + saved.id + ') -> ' + game.executables[0].name
+          console.log('[custom] added ' + saved.name + ' (' + saved.id + ') -> ' + typed
             + (lookup.error ? ' - Discord lookup failed: ' + lookup.error : ''));
+          // A custom entry on a Discord game id is merged into Discord's own entry rather than
+          // saved beside it, so the panel has to say that - it is Discord's entry that now also
+          // runs the typed path, not a new game Discord has never heard of.
+          const mergedInto = store.detectable.find((d) => d.id === saved.id) || null;
           return sendJson(res, 200, {
             ok: true,
             added: true,
             game: saved,
+            mergedInto: mergedInto ? { id: mergedInto.id, name: mergedInto.name } : null,
             note: (lookup.looked ? 'Discord game id ' + saved.id + ' is "' + saved.name + '". ' : '')
               + (lookup.error ? 'Could not look up game id ' + saved.id + ' on Discord (' + lookup.error + '). ' : '')
-              + 'Discord detects it only once its own detectable list has this path',
+              + (mergedInto
+                ? 'Added to Discord’s own "' + mergedInto.name + '" entry, which now also runs '
+                  + typed + ' alongside its own'
+                // forced past a twin: the entry is saved, but Discord's own path is still the
+                // one it looks for, so the quest outcome has not changed
+                : known
+                  ? 'Added, but Discord still looks for '
+                    + Spoofer.candidates(known).map((e) => e.name).join(', ')
+                    + ' under "' + known.name + '" - only that one counts towards a quest'
+                  : 'Discord detects it only once its own detectable list has this path'),
             games: store.meta()
           });
         }
@@ -379,10 +430,12 @@ function createServer({ config, store, spoofer, queue }) {
         const body = await readBody(req);
         const game = store.resolve(body.id || body.name);
         if (!game) return sendJson(res, 404, { ok: false, reason: 'game not found' });
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
         // body.executable: "all" | executable name | array of names | index | omitted
         const result = spoofer.start(game, {
           executable: body.executable,
-          durationMinutes: body.durationMinutes
+          durationMinutes: duration.minutes
         });
         return sendJson(res, result.ok ? 200 : 409, Object.assign({}, result, { running: spoofer.list() }));
       }
@@ -407,17 +460,21 @@ function createServer({ config, store, spoofer, queue }) {
 
       if (route === '/api/queue' && req.method === 'POST') {
         const body = await readBody(req);
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
         const result = queue.add({
           id: body.id || body.name,
           executable: body.executable,
-          durationMinutes: body.durationMinutes
+          durationMinutes: duration.minutes
         });
         return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, { queue: queue.describe() }));
       }
 
       if (route === '/api/queue' && req.method === 'PATCH') {
         const body = await readBody(req);
-        const result = queue.update(body.uid, body);
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
+        const result = queue.update(body.uid, Object.assign({}, body, { durationMinutes: duration.minutes }));
         return sendJson(res, result.ok ? 200 : 404, Object.assign({}, result, { queue: queue.describe() }));
       }
 
@@ -473,12 +530,14 @@ function createServer({ config, store, spoofer, queue }) {
         if (config.presets.some((p) => String(p.id) === game.id)) {
           return sendJson(res, 200, { ok: true, presets: describePresets() });
         }
+        const duration = durationField(body.durationMinutes);
+        if (duration.error) return sendJson(res, 400, { ok: false, reason: duration.error });
         const preferred = Spoofer.select(game, body.executable)[0];
         config.presets.push({
           id: game.id,
           name: game.name,
           executable: body.executable || (preferred ? preferred.name : undefined),
-          durationMinutes: Number(body.durationMinutes) > 0 ? Number(body.durationMinutes) : 0
+          durationMinutes: duration.minutes || 0
         });
         if (!configModule.save(config)) {
           return sendJson(res, 500, { ok: false, reason: 'config.json is not valid JSON - fix it and restart', presets: describePresets() });
