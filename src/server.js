@@ -295,7 +295,17 @@ function createServer({ config, store, spoofer, queue }) {
           return sendJson(res, 400, { ok: false, reason: 'limit must be an integer from 1 to 500; offset must be a non-negative integer' });
         }
         const onlyThisOs = url.searchParams.get('all') !== '1';
-        return sendJson(res, 200, store.search(url.searchParams.get('q') || '', { limit, offset, onlyThisOs }));
+        const query = url.searchParams.get('q') || '';
+        const page = store.search(query, { limit, offset, onlyThisOs });
+        // The panel searches Discord's whole list and filters by OS itself, so that a game
+        // Discord only knows for another system reads as "not runnable here" rather than
+        // "no match". It cannot tell that from one page, so say how many of the matches are
+        // runnable on this OS - the same list restricted to this OS, which is what the
+        // default (onlyThisOs) call would have returned.
+        if (!onlyThisOs) {
+          page.runnableHere = store.search(query, { limit: 1, onlyThisOs: true }).total;
+        }
+        return sendJson(res, 200, page);
       }
 
       if (route === '/api/custom' && req.method === 'POST') {
@@ -310,16 +320,20 @@ function createServer({ config, store, spoofer, queue }) {
             return sendJson(res, 400, { ok: false, reason: err.message });
           }
 
+          const typed = game.executables[0].name;
           const known = findExecutableTwin(store.detectable, game);
           if (known && !body.force) {
             const wants = Spoofer.candidates(known).map((e) => e.name);
-            console.log('[custom] ' + game.executables[0].name + ' matches detectable "' + known.name + '" - not adding');
+            console.log('[custom] ' + typed + ' matches detectable "' + known.name + '" - not adding');
             return sendJson(res, 200, {
               ok: true,
               added: false,
               useInstead: { id: known.id, name: known.name, executables: wants },
-              note: 'Discord already tracks ' + game.executables[0].name + ' as "' + known.name
-                + '" (' + wants.join(', ') + ') - opening that entry',
+              // The typed path is not the one Discord looks for, so it is not what got saved -
+              // saying otherwise would let the panel claim a path was set when it was dropped.
+              note: 'Your path ' + typed + ' was not added - Discord does not detect it. '
+                + 'Discord detects "' + known.name + '" as ' + wants.join(', ')
+                + ', so that entry is shown instead',
               games: store.meta()
             });
           }
@@ -327,15 +341,29 @@ function createServer({ config, store, spoofer, queue }) {
           // the id and path are settled; only the name and icon can still come from Discord
           const lookup = await withDiscordDetails(game);
           const saved = store.addCustom(lookup.game, { merge: true });
-          console.log('[custom] added ' + saved.name + ' (' + saved.id + ') -> ' + game.executables[0].name
+          console.log('[custom] added ' + saved.name + ' (' + saved.id + ') -> ' + typed
             + (lookup.error ? ' - Discord lookup failed: ' + lookup.error : ''));
+          // A custom entry on a Discord game id is merged into Discord's own entry rather than
+          // saved beside it, so the panel has to say that - it is Discord's entry that now also
+          // runs the typed path, not a new game Discord has never heard of.
+          const mergedInto = store.detectable.find((d) => d.id === saved.id) || null;
           return sendJson(res, 200, {
             ok: true,
             added: true,
             game: saved,
+            mergedInto: mergedInto ? { id: mergedInto.id, name: mergedInto.name } : null,
             note: (lookup.looked ? 'Discord game id ' + saved.id + ' is "' + saved.name + '". ' : '')
               + (lookup.error ? 'Could not look up game id ' + saved.id + ' on Discord (' + lookup.error + '). ' : '')
-              + 'Discord detects it only once its own detectable list has this path',
+              + (mergedInto
+                ? 'Added to Discord’s own "' + mergedInto.name + '" entry, which now also runs '
+                  + typed + ' alongside its own'
+                // forced past a twin: the entry is saved, but Discord's own path is still the
+                // one it looks for, so the quest outcome has not changed
+                : known
+                  ? 'Added, but Discord still looks for '
+                    + Spoofer.candidates(known).map((e) => e.name).join(', ')
+                    + ' under "' + known.name + '" - only that one counts towards a quest'
+                  : 'Discord detects it only once its own detectable list has this path'),
             games: store.meta()
           });
         }
