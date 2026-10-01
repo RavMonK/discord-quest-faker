@@ -4,3 +4,6 @@ node_modules/
 # user state - game cache, custom games, generated placeholders, local settings
 data/
 config.json
+
+# macOS
+.DS_Store

@@ -177,6 +177,7 @@ function printHelp() {
     '  --name <game name>    with --add-exe: the name to list it under (default: its folder)',
     '  --id <game id>        with --add-exe: Discord\'s game id ("Copy Game ID"), or give it as the',
     '                        path\'s first part: "1531874756096295054\\EA SPORTS FC 27\\FC27.exe"',
+    '  --force               with --add-steam/--add-exe: save even if Discord already lists the game',
     '  --list [query]        print matching games for this OS and exit',
     '  --start <name|id>     start a game from the command line (Ctrl+C to stop)',
     '  --exe all|<name>|<n>  which executable(s) of that game to run (default: the first one)',

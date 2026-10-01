@@ -8,7 +8,7 @@
 
 | ระบบ | จำนวนเกมที่มี executable | placeholder มีหน้าต่างไหม | สถานะ |
 |---|---|---|---|
-| **Windows** | 10,447 | ✅ มี (ชั้น `compiled`) | ใช้งานได้เต็มรูปแบบ ทดสอบแล้ว |
+| **Windows** | 10,459 | ✅ มี (ชั้น `compiled`) | รองรับ · ชุดเทสต์รันบน Windows CI · ชั้น `compiled` คือชั้นที่การตรวจจับของ Discord ถูกออกแบบมารองรับ |
 | **macOS** | **62** | ✅ มี (ชั้น `compiled`) | ต้องมี Xcode CLT · ครบทุกสัญญาณที่ Discord อ่านได้ แต่ยังไม่ยืนยันว่านับ quest ให้ |
 | **Linux** | 8 | ✅ มี (ชั้น `compiled`) | ต้องมี C compiler และ session ของ X/XWayland · ยืนยันแล้วว่าหน้าต่างขึ้นจริงบน X11 แต่ยังไม่ยืนยันว่า Discord นับ quest ให้ |
 
@@ -39,7 +39,7 @@
 ต่างจาก Windows สองเรื่องใหญ่:
 
 1. **ลิสต์ของ Discord ฝั่ง Unix เล็กมาก** — 62 เกมบน macOS และ 8 เกมบน Linux เทียบกับ
-   10,447 บน Windows
+   10,459 บน Windows
 2. **ชั้น `compiled` ของ macOS ต้องมี Xcode Command Line Tools** — ใช้ `clang` + Cocoa SDK
    ถ้าไม่มีจะตกไปใช้ชั้น `node` ที่ **ไม่มีหน้าต่าง** และโปรแกรมจะเตือนพร้อมบอกให้รัน
    `xcode-select --install`
