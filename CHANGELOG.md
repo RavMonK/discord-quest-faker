@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.6.1 - 2026-10-02
+
+### Fixed
+
+- **CI was red on macOS and Linux**: a server test hardcoded a `.exe` fixture that those
+  platforms refuse. Fixtures now follow the OS they run on.
+- **A sub-minute auto-stop never fired.** Clamping the duration to whole minutes turned
+  `0.003` into `0` ("run until stopped"), so no timer was armed. The timer now clamps in
+  milliseconds from the requested value; the displayed duration is still whole minutes.
+- An out-of-range duration (e.g. 100000 minutes) overflowed `setTimeout` and ended the session
+  at once. It is clamped to the largest delay a timer accepts.
+- `Info.plist` was written with unescaped `&`, `<`, `>` from the game name, which is invalid XML.
+- The control panel search hid Discord's own list behind custom entries, the path example was
+  Windows-only on every OS, and the "twin" message claimed a path was saved when it was not.
+- `queue.remove()` left the gap timer pointing at the removed entry, so a deleted game could
+  still start. The timer now moves to the next pending entry and keeps the time left.
+- `"presets": null` (or any non-list `presets`/`queue`) in `config.json` crashed the app on
+  start. It now falls back to an empty list in memory and leaves the file alone.
+- Two custom names that differ only by punctuation (`Foo: Bar`, `Foo Bar`) shared one id and
+  were merged into one game. Names that lose characters now get a short hash suffix.
+- A `games.json` saved with a UTF-8 BOM failed to load (`custom-games.json` already handled it).
+- A game entry without `aliases` made `resolve()` and `search()` throw; entries without an
+  `executables` list are now skipped.
+- A macOS `.app` path was named `MacOS` (id `custom-macos`) instead of after the app.
+
+### Changed
+
+- `--force` is listed in `--help`; `.DS_Store` is ignored.
+- Docs: Node.js 22+ (was 18+), 10,459 Windows games (was 10,447), the Windows status row no
+  longer claims "Fully working, tested", and `CLAUDE.md` now covers `/api/session`, the config
+  fallbacks and the real scope of the frontend test.
+
+### Upgrade note
+
+Custom games saved under a name containing punctuation, or from a `.app` path, get a new id.
+Add them again if a preset or queue entry stops finding them.
+
+### Testing
+
+- 113 tests (108 run, 5 skipped as OS-specific).
+
+Full changelog: [v1.6.0...v1.6.1](https://github.com/RavMonK/discord-quest-faker/compare/v1.6.0...v1.6.1)
+
 ## 1.6.0 - 2026-09-26
 
 ### Added
