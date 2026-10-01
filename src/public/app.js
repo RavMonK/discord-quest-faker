@@ -5,6 +5,7 @@ const state = {
   presets: [],
   running: [],
   os: "",
+  listCount: 0,   // how big Discord's whole game list is, for the "no match" wording
   results: [],
   queue: {
     running: false,
@@ -405,17 +406,24 @@ async function addCustomGame(payload, force) {
       } else {
         $("steamInput").value = "";
       }
-      toast("Added " + target.name + (byPath ? "" : " from Steam"), "ok");
+      // a path added onto Discord's own game id edits that entry rather than creating a
+      // separate game, and the row is tagged either way - say which one happened
+      toast(
+        data.mergedInto
+          ? "Added to Discord’s " + data.mergedInto.name
+          : "Added " + target.name + (byPath ? "" : " from Steam"),
+        "ok",
+      );
       showSteamNote(
-        "Saved to data/custom-games.json · " +
+        (data.mergedInto
+          ? "Added to Discord’s own “" + data.mergedInto.name + "” entry in data/custom-games.json · "
+          : "Saved to data/custom-games.json · ") +
           target.executables.map((e) => e.name || e).join(", ") +
           (byPath ? " · " + data.note : ""),
       );
     } else if (byPath) {
-      toast(
-        target.name + " is already in Discord’s list — showing it below",
-        "ok",
-      );
+      // the typed path is gone, not saved: say so before the entry that replaced it
+      toast("Your path was not added — showing " + target.name + " below", "ok");
       showSteamNote(
         data.note + ". A copy of your own would not count towards a quest.",
         payload,
@@ -921,6 +929,7 @@ function renderResults() {
 
 function renderMeta(meta) {
   const el = $("listMeta");
+  state.listCount = meta.count || 0;
   el.classList.toggle("loading", Boolean(meta.refreshing));
   el.textContent = meta.refreshing
     ? "refreshing…"
@@ -933,6 +942,35 @@ function renderMeta(meta) {
       timeAgo(meta.fetchedAt);
 }
 
+/**
+ * The typed-path field is the panel's last resort, so its example has to be one this machine
+ * can actually run: a .exe is what the server rejects on macOS and Linux, which made the old
+ * Windows example an instant error for anyone who copied it.
+ */
+const PROCESS_PATH_HINT = {
+  win32: {
+    example: "EA SPORTS FC 27\\FC27.exe",
+    where: "Task Manager → Details",
+  },
+  darwin: {
+    example: "Applications/Celeste.app/Contents/MacOS/Celeste",
+    where: "Activity Monitor",
+  },
+  linux: {
+    example: "steamapps/common/Valheim/valheim.x86_64",
+    where: "the process list (ps, top)",
+  },
+};
+
+function renderProcessPathHint(os) {
+  const hint = PROCESS_PATH_HINT[os] || PROCESS_PATH_HINT.win32;
+  $("exeInput").placeholder = "Process path — e.g. " + hint.example;
+  $("exeHint").textContent =
+    "Where to find it: " +
+    hint.where +
+    ", while the game runs. Discord’s Copy Game ID on the game’s profile fills the id field.";
+}
+
 /* ---------------- data flow ---------------- */
 
 let searchTimer = null;
@@ -941,11 +979,22 @@ const PAGE_SIZE = 100;
 // `generation` invalidates pages still in flight when the query changes underneath them
 const paging = {
   query: "",
-  total: 0,
+  total: 0,     // matches in Discord's whole list, every OS included
+  runnable: 0,  // of those, the ones this machine can actually run
   loading: false,
   generation: 0,
   exhausted: false,
 };
+
+/**
+ * How many games the query matches across Discord's whole list, and how many of those run
+ * here. The default /api/games hides the other-system entries, so a game Discord plainly
+ * knows came back as "No match" - on macOS that was 62 of 10,460 games - and the panel then
+ * invited a custom entry that could never be detected. One all=1 call settles both numbers.
+ */
+function fetchCounts(query) {
+  return api("/api/games?all=1&limit=1&q=" + encodeURIComponent(query));
+}
 
 function fetchPage(query, offset) {
   return api(
@@ -958,21 +1007,43 @@ function fetchPage(query, offset) {
   );
 }
 
+/** A game Discord lists only for another system cannot be started here. */
+function runnableHere(game) {
+  return (game.executables || []).some((exe) => exe.os === state.os);
+}
+
 function updateHint() {
+  const el = $("resultHint");
   const shown = state.results.length;
-  if (paging.total === 0) {
-    $("resultHint").textContent = paging.query ? "No match" : "";
-  } else if (shown < paging.total) {
-    $("resultHint").textContent =
-      "Showing " +
-      shown +
-      " of " +
-      paging.total +
-      (paging.loading ? " — loading more…" : " — scroll for more");
-  } else {
-    $("resultHint").textContent =
-      paging.total + " match" + (paging.total === 1 ? "" : "es");
+  const total = paging.total;
+  const runnable = paging.runnable;
+  const matches = total + (total === 1 ? " match" : " matches");
+
+  // The query matched every OS, so some matches are games Discord only knows for another
+  // system. Say how many those are instead of dropping them and calling it "no match" - and
+  // phrase both numbers against the same set, so "1 result - 1 not runnable" never happens.
+  if (total === 0) {
+    el.textContent = paging.query
+      ? "No match in Discord’s list of " + state.listCount + " games. If Discord really does not have it, add it by process path below."
+      : "";
+    return;
   }
+  if (runnable === 0) {
+    el.textContent =
+      matches + " in Discord’s list, but none of them run on " + state.os
+      + " — Discord knows them for another system only";
+    return;
+  }
+  if (shown < runnable) {
+    el.textContent =
+      "Showing " + shown + " of " + runnable + " that run on " + state.os
+      + (paging.loading ? " — loading more…" : " — scroll for more")
+      + " (" + matches + " in Discord’s list)";
+    return;
+  }
+  el.textContent = runnable < total
+    ? runnable + " of " + matches + " run on " + state.os
+    : runnable + (runnable === 1 ? " result" : " results");
 }
 
 /** Fresh search: replaces the list and scrolls back to the top. */
@@ -985,10 +1056,13 @@ async function runSearch() {
   const generation = paging.generation;
 
   try {
-    const data = await fetchPage(query, 0);
+    // the count call and the first page in one go: the page is the OS-filtered list, the
+    // count says how much of Discord's whole list sits behind it
+    const [counts, data] = await Promise.all([fetchCounts(query), fetchPage(query, 0)]);
     if (generation !== paging.generation) return; // a newer search already started
-    state.results = data.items;
-    paging.total = data.total;
+    state.results = data.items.filter(runnableHere);
+    paging.total = counts.total;
+    paging.runnable = counts.runnableHere;
     renderResults();
     $("results").scrollTop = 0;
   } catch (err) {
@@ -1006,7 +1080,7 @@ async function loadMore() {
   if (
     paging.loading ||
     paging.exhausted ||
-    state.results.length >= paging.total
+    state.results.length >= paging.runnable
   )
     return;
   paging.loading = true;
@@ -1021,9 +1095,9 @@ async function loadMore() {
       paging.exhausted = true;
     } else {
       const container = $("results");
-      state.results = state.results.concat(data.items);
-      data.items.forEach((game) => appendResultRow(container, game));
-      paging.total = data.total;
+      const fresh = data.items.filter(runnableHere);
+      state.results = state.results.concat(fresh);
+      fresh.forEach((game) => appendResultRow(container, game));
     }
   } catch (err) {
     paging.exhausted = true; // stop hammering a failing endpoint
@@ -1054,6 +1128,7 @@ async function loadState() {
   state.running = data.running;
   if (data.queue) state.queue = data.queue;
   $("platform").textContent = data.os;
+  renderProcessPathHint(data.os);
   $("duration").value = data.settings.defaultDurationMinutes || 0;
   $("queueDelayMin").value = state.queue.delay.min;
   $("queueDelayMax").value = state.queue.delay.max;
