@@ -155,8 +155,14 @@ function customGame(input, name, osKey = OS_KEY, gameId = '') {
 
   // Spoofer.gameDirectory() only accepts [a-z0-9._-], so a name with nothing Latin in it
   // (a Thai title, say) gets a short hash instead of an empty slug.
-  const slug = fold(title).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-    || crypto.createHash('sha1').update(title).digest('hex').slice(0, 12);
+  const folded = fold(title);
+  const hash = () => crypto.createHash('sha1').update(title).digest('hex').slice(0, 12);
+  let slug = folded.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  if (!slug) slug = hash();
+  // Punctuation is dropped from the slug, so "Foo: Bar" and "Foo Bar" would become the same id and
+  // addCustom({ merge: true }) would fuse two different games. A name that lost anything beyond
+  // spaces gets a short hash of the real title; plain names keep the id they always had.
+  else if (/[^a-z0-9\s]/.test(folded)) slug = slug.slice(0, 47) + '-' + hash().slice(0, 8);
 
   return {
     id: id || 'custom-' + slug,
