@@ -29,7 +29,8 @@ state, not source.
   ],
   "queueDelayMinSeconds": 30,
   "queueDelayMaxSeconds": 70,
-  "autoStartPresets": false
+  "autoStartPresets": false,
+  "autoUpdate": true
 }
 ```
 
@@ -54,6 +55,7 @@ state, not source.
 | `queueDelayMinSeconds` | `30` | Shortest wait between two queue entries |
 | `queueDelayMaxSeconds` | `70` | Longest wait between two queue entries |
 | `autoStartPresets` | `false` | Start every preset on launch (same as `--presets`) |
+| `autoUpdate` | `true` | `git pull --ff-only` on launch and restart on the new code. Only in a git clone with a clean tree; a ZIP download, local edits or commits, a diverged branch, or no network all leave the files alone and say so in the terminal. `--no-update` skips it once |
 
 All paths are resolved from the repo root.
 

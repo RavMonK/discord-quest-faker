@@ -39,7 +39,11 @@ const DEFAULTS = {
   queueDelayMaxSeconds: 70,
 
   // start every preset automatically when the program launches
-  autoStartPresets: false
+  autoStartPresets: false,
+
+  // git pull on launch (only in a git clone with a clean tree) and restart on the new code.
+  // --no-update skips it once.
+  autoUpdate: true
 };
 
 function deepMerge(base, override) {

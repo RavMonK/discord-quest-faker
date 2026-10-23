@@ -9,6 +9,7 @@ const { Spoofer } = require('./spoof');
 const { createServer, findDetectableTwin, findExecutableTwin } = require('./server');
 const { QuestQueue } = require('./queue');
 const steam = require('./steam');
+const { selfUpdate } = require('./update');
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -184,6 +185,7 @@ function printHelp() {
     '  --duration <minutes>  stop automatically after N minutes (with --start)',
     '  --presets             start every preset from config.json on launch',
     '  --queue               start the queue from config.json on launch (one game at a time)',
+    '  --no-update           skip the git pull that runs on launch (config: "autoUpdate")',
     '  --help                show this help',
     ''
   ].join('\n'));
@@ -224,6 +226,12 @@ async function main() {
   const config = configModule.load();
   if (args.port) config.port = Number(args.port);
   if (args.headless) config.openBrowser = false;
+
+  // Before anything is spawned: when a pull brings new code in, this process is replaced by a
+  // fresh one (selfUpdate does not return in that case), so nothing started here would outlive it.
+  if (config.autoUpdate && !args['no-update']) {
+    selfUpdate({ root: config.root, argv: process.argv.slice(2) });
+  }
 
   const store = new GameStore(config);
   const spoofer = new Spoofer(config);

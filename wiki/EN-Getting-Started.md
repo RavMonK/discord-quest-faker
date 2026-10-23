@@ -50,9 +50,10 @@ chmod +x start.sh && ./start.sh
 
 On launch it:
 
-1. Loads the cached game list first, so the panel is usable immediately — no waiting on the network.
-2. **Refreshes the list from Discord in the background**, overwriting `data/games.json` (~10,400 games).
-3. Opens the control panel at <http://127.0.0.1:5011>.
+1. **Updates itself** (`git pull`) when the folder is a git clone and a newer version exists, then restarts on the new code. A ZIP download is skipped with a pointer to the releases page; local edits are never overwritten. `--no-update` skips this once, `"autoUpdate": false` in `config.json` turns it off.
+2. Loads the cached game list first, so the panel is usable immediately — no waiting on the network.
+3. **Refreshes the list from Discord in the background**, overwriting `data/games.json` (~10,400 games).
+4. Opens the control panel at <http://127.0.0.1:5011>.
 
 If the port is taken, the tool names the process holding it (name + pid) and offers to kill it.
 Answer `y` to take the port, or `n` and use `--port 8080` instead.

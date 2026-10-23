@@ -26,6 +26,7 @@ node src/index.js --start "<game>" --exe <all|name|index> --duration <minutes>
 node src/index.js --queue          # play config.json's queue, one game at a time
 node src/index.js --add-steam <steam app id or URL> [--force]
 node src/index.js --add-exe "[1531874756096295054\]EA SPORTS FC 27\FC27.exe" [--name "<game>"] [--id <game id>] [--force]
+node src/index.js --no-update     # skip the git pull that otherwise runs first on every launch
 node src/index.js --help
 ```
 
@@ -44,7 +45,8 @@ config, never the real `config.json`), `spoof.js`'s path/name helpers (`material
 shape of `tiers()`, and `startOne()`'s synchronous guards (already-running, `maxConcurrent`), `steam.js`'s parsing (`parseAppId`, `normalizeExecutable`,
 `executablesInArguments`, `osKeysFor`), and `queue.js` (`randomBetween`/`clampSeconds`, the list
 operations, and the whole advance cycle against a stub spoofer - the queue takes its `save` as a
-constructor argument precisely so a test never writes the real `config.json`). It deliberately does **not** cover: `config.js`'s
+constructor argument precisely so a test never writes the real `config.json`), and `update.js`'s
+`planAndApply()`/`describe()` against a scripted git stub (never a real repo or the network). It deliberately does **not** cover: `config.js`'s
 `load()`/`save()` (they hardcode the real `config.json` path under the project root — there is no
 way to point them at a temp file, so testing them would risk clobbering the user's actual config),
 anything that spawns a real placeholder or invokes `csc.exe` (OS/environment-dependent, exactly
@@ -116,7 +118,7 @@ there is the OS refusing to run the file at all.
 
 ## Architecture
 
-Six modules under `src/`, wired together in `index.js`:
+Seven modules under `src/`, wired together in `index.js`:
 
 - **config.js** — loads/saves `config.json`. Three rules encoded here: BOM-prefixed JSON is
   tolerated (Windows editors write it), a file that fails to parse is never overwritten
@@ -158,6 +160,15 @@ Six modules under `src/`, wired together in `index.js`:
   that same callback and the queue would otherwise read its own Stop as "the game finished" and
   start the next one. Shutdown stops the queue first and with the **synchronous** kill, since an
   async `taskkill` never runs once `process.exit` is on its way.
+- **update.js** — self-update on launch (`autoUpdate`, default on; `--no-update` skips once).
+  `planAndApply()` runs git through an injected `run` so the tests play every outcome with a
+  stub. It fast-forwards only: no `.git` (ZIP download), no git, no upstream, a dirty tree,
+  local commits, a diverged branch or a failed fetch (20 s timeout) each return a named status
+  and leave the files alone — the checkout is the user's. When HEAD moved, `selfUpdate()`
+  re-runs `src/index.js` with the same argv plus `--no-update` via `spawnSync` with inherited
+  stdio and exits with the child's status: every module is already `require()`d by then, so a
+  fresh process is the only way to run the new code. It runs before anything is spawned for the
+  same reason. `--help` returns before it.
 - **server.js** — zero-dependency `http` server, static files from `src/public/`, JSON API under
   `/api/`: `session` (GET, hands out the per-process token every other call must send as
   `x-dqf-token`; Host and Origin must be loopback), `state`, `games`, `custom` (POST/DELETE), `refresh`, `start`, `stop`, `stop-all`,

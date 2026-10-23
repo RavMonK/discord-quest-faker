@@ -30,6 +30,7 @@ node src/index.js --help
 | `--duration <minutes>` | Stop automatically after N minutes (with `--start`) |
 | `--presets` | Start every preset from `config.json` on launch |
 | `--queue` | Start the queue from `config.json` on launch — one game at a time, a random gap between each |
+| `--no-update` | Skip the `git pull` that runs on launch this once (`"autoUpdate": false` in `config.json` turns it off for good) |
 | `--help` | Show usage |
 
 Both `--port 8080` and `--port=8080` are accepted.
