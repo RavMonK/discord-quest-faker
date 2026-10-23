@@ -29,6 +29,7 @@ node src/index.js --help
 | `--duration <minutes>` | หยุดอัตโนมัติหลังกี่นาที (ใช้กับ `--start`) |
 | `--presets` | รันทุก preset ใน `config.json` ทันทีที่เปิดโปรแกรม |
 | `--queue` | เริ่มคิวใน `config.json` ทันทีที่เปิดโปรแกรม — เล่นทีละเกม เว้นระยะแบบสุ่ม |
+| `--no-update` | ข้ามการ `git pull` ตอนเปิดโปรแกรมครั้งนี้ (ปิดถาวรด้วย `"autoUpdate": false` ใน `config.json`) |
 | `--help` | แสดงวิธีใช้ |
 
 รับได้ทั้งรูปแบบ `--port 8080` และ `--port=8080`

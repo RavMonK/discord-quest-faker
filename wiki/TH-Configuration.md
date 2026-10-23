@@ -29,7 +29,8 @@
   ],
   "queueDelayMinSeconds": 30,
   "queueDelayMaxSeconds": 70,
-  "autoStartPresets": false
+  "autoStartPresets": false,
+  "autoUpdate": true
 }
 ```
 
@@ -54,6 +55,7 @@
 | `queueDelayMinSeconds` | `30` | เวลารอน้อยสุดระหว่างสองรายการในคิว (วินาที) |
 | `queueDelayMaxSeconds` | `70` | เวลารอมากสุดระหว่างสองรายการในคิว (วินาที) |
 | `autoStartPresets` | `false` | รันทุก preset ทันทีที่เปิดโปรแกรม (เท่ากับ `--presets`) |
+| `autoUpdate` | `true` | `git pull --ff-only` ตอนเปิดโปรแกรม แล้วรันใหม่ด้วยโค้ดล่าสุด ทำเฉพาะใน git clone ที่ไม่มีไฟล์ค้างแก้ — ถ้าโหลดมาเป็น ZIP, มีไฟล์/commit ที่แก้เอง, branch แยกทางกัน หรือไม่มีเน็ต จะไม่แตะไฟล์และบอกเหตุผลใน terminal ใช้ `--no-update` ข้ามครั้งเดียว |
 
 path ทุกอันคิดจากรากของ repo
 
