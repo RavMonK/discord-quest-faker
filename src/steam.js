@@ -11,7 +11,7 @@ function parseAppId(input) {
   const text = String(input || '').trim();
   if (/^\d+$/.test(text)) return text;
 
-  const match = text.match(/(?:steamdb\.info\/app|steampowered\.com\/app|steamcommunity\.com\/app|steam:\/\/[a-z]+\/)\/?(\d+)/i)
+  const match = text.match(/(?:steamdb\.info\/app|steampowered\.com\/(?:agecheck\/)?app|steamcommunity\.com\/app|steam:\/\/[a-z]+\/)\/?(\d+)/i)
     || text.match(/[?&]appids?=(\d+)/i);
   return match ? match[1] : null;
 }

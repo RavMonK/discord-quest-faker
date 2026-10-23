@@ -24,6 +24,10 @@ test('parseAppId: store.steampowered.com URL', () => {
   assert.equal(parseAppId('https://store.steampowered.com/app/730/CounterStrike_2/'), '730');
 });
 
+test('parseAppId: store.steampowered.com age-check URL', () => {
+  assert.equal(parseAppId('https://store.steampowered.com/agecheck/app/3393110/'), '3393110');
+});
+
 test('parseAppId: steamcommunity.com URL', () => {
   assert.equal(parseAppId('https://steamcommunity.com/app/440'), '440');
 });
