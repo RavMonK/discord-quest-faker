@@ -14,6 +14,9 @@ const DEFAULTS = {
 
   // game list
   apiUrl: 'https://discord.com/api/v10/applications/detectable',
+  // Discord's second list: browsers and tools (Firefox, Chrome, Opera GX ...) that are not games
+  // but whose quests still count as "play on desktop". Set to "" to leave them out.
+  nonGamesUrl: 'https://cdn.discordapp.com/detectables/non-games-v1.json',
   gamesFile: 'data/games.json',
   customGamesFile: 'data/custom-games.json',
   refreshOnStart: true,

@@ -42,8 +42,12 @@ async function fetchJson(apiUrl) {
   });
 }
 
-/** Strip the 12MB API payload down to the fields the runner and UI actually need. */
-function normalize(rawList) {
+/**
+ * Strip the 12MB API payload down to the fields the runner and UI actually need. The same shape
+ * serves Discord's non-games list (`source: 'non-game'`), which carries the same fields minus
+ * the icon.
+ */
+function normalize(rawList, { source = null } = {}) {
   const games = [];
   for (const app of rawList) {
     if (!app || !Array.isArray(app.executables) || app.executables.length === 0) continue;
@@ -53,6 +57,9 @@ function normalize(rawList) {
       // Discord's list is developer-submitted; a ".." segment would let it escape the
       // per-game directory materialize() builds it under.
       .filter((exe) => !exe.name.replace(/\\/g, '/').split('/').some((part) => part === '..'))
+      // An entry with `arguments` ("opera.exe --with-feature:gx-post-mortem=on") is matched by
+      // Discord on the command line too, and a placeholder started by name alone never has it.
+      .filter((exe) => !(typeof exe.arguments === 'string' && exe.arguments.trim()))
       .map((exe) => ({
         name: exe.name,
         os: exe.os || 'win32',
@@ -60,13 +67,15 @@ function normalize(rawList) {
       }));
     if (executables.length === 0) continue;
 
-    games.push({
+    const game = {
       id: String(app.id),
       name: app.name || '(unnamed)',
       aliases: Array.isArray(app.aliases) ? app.aliases : [],
       icon: app.icon_hash || null,
       executables
-    });
+    };
+    if (source) game.source = source;
+    games.push(game);
   }
   games.sort((a, b) => a.name.localeCompare(b.name));
   return games;
@@ -229,8 +238,10 @@ function writeAtomic(filePath, text) {
 }
 
 class GameStore {
-  constructor(config) {
+  /** `fetcher` is only ever swapped by tests, so nothing there reaches discord.com. */
+  constructor(config, { fetcher = fetchJson } = {}) {
     this.config = config;
+    this.fetcher = fetcher;
     this.games = [];        // detectable list + custom entries, what everything else reads
     this.detectable = [];   // straight from Discord
     this.custom = [];       // games added by hand, e.g. looked up on Steam
@@ -335,6 +346,32 @@ class GameStore {
     return true;
   }
 
+  /**
+   * Discord's non-games list (browsers and tools: Firefox, Chrome, Opera GX ...). The client
+   * fetches it beside the games list and a quest tied to one of these ids counts as "play on
+   * desktop" just like a game - but the entries live under different ids from the games list
+   * (Firefox is in both, with executables only here). It is a side list: a failed fetch logs
+   * and keeps whatever non-games the last refresh brought, never fails the whole refresh.
+   */
+  async fetchNonGames() {
+    const url = this.config.nonGamesUrl;
+    const previous = this.detectable.filter((g) => g.source === 'non-game');
+    if (!url) return previous;
+    try {
+      const raw = await this.fetcher(url);
+      if (!Array.isArray(raw)) throw new Error('unexpected response (not an array)');
+      const list = normalize(raw, { source: 'non-game' });
+      // The list carries no icon hash. Discord's public /rpc has one for some of them (Chrome,
+      // Opera GX ...) and none for others (Firefox) - those keep the initial. Six lookups at
+      // most, and a failed one is just a missing picture.
+      return Promise.all(list.map((game) => withDiscordDetails(
+        Object.assign({ namedByUser: true }, game), this.fetcher).then((r) => r.game)));
+    } catch (err) {
+      console.error(`[games] non-games list failed: ${err.message}${previous.length ? ' - keeping the cached one' : ''}`);
+      return previous;
+    }
+  }
+
   /** Fetch from Discord and overwrite the json cache. Keeps the old list on failure. */
   async refresh() {
     if (this.refreshing) return { ok: false, reason: 'already refreshing' };
@@ -343,13 +380,19 @@ class GameStore {
     const startedAt = Date.now();
     try {
       console.log('[games] fetching detectable game list from Discord ...');
-      const raw = await fetchJson(this.config.apiUrl);
+      const raw = await this.fetcher(this.config.apiUrl);
       if (!Array.isArray(raw)) throw new Error('unexpected API response (not an array)');
 
       const games = normalize(raw);
       if (games.length === 0) throw new Error('API returned an empty game list');
 
-      this.detectable = games.filter(usable).map(withDefaults);
+      // The two lists are keyed by different ids; a Discord-side clash would leave the game.
+      const nonGames = await this.fetchNonGames();
+      const ids = new Set(games.map((g) => g.id));
+      const all = games.concat(nonGames.filter((g) => !ids.has(g.id)))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      this.detectable = all.filter(usable).map(withDefaults);
       this.fetchedAt = new Date().toISOString();
       this.source = 'api';
       this.merge();
@@ -357,12 +400,13 @@ class GameStore {
       writeAtomic(this.config.gamesPath, `${JSON.stringify({
         fetchedAt: this.fetchedAt,
         source: this.config.apiUrl,
-        count: games.length,
-        games
+        nonGamesSource: this.config.nonGamesUrl || null,
+        count: all.length,
+        games: all
       }, null, 2)}\n`);
 
-      console.log(`[games] saved ${games.length} games to ${this.config.gamesFile} (${Date.now() - startedAt}ms)`);
-      return { ok: true, count: games.length, fetchedAt: this.fetchedAt };
+      console.log(`[games] saved ${games.length} games + ${nonGames.length} non-games to ${this.config.gamesFile} (${Date.now() - startedAt}ms)`);
+      return { ok: true, count: all.length, nonGames: nonGames.length, fetchedAt: this.fetchedAt };
     } catch (err) {
       this.lastError = err.message;
       console.error(`[games] refresh failed: ${err.message}${this.games.length ? ' - keeping cached list' : ''}`);
@@ -435,6 +479,7 @@ class GameStore {
     return {
       count: this.games.length,
       custom: this.custom.length,
+      nonGames: this.detectable.filter((g) => g.source === 'non-game').length,
       playableHere: this.games.filter((g) => g.executables.some((e) => e.os === OS_KEY)).length,
       fetchedAt: this.fetchedAt,
       source: this.source,

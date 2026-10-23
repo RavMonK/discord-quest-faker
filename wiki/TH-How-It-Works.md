@@ -134,6 +134,33 @@ data/runtime/1402418696126992445/garenalolth/gamedata/apps/lolth/lolex.exe
 - เกมที่ **ไม่มีในลิสต์ detectable** หลอกไม่ได้ (ดู [เพิ่มเกมจาก Steam](TH-Steam-Games)
   ว่าทำได้แค่ไหน)
 
+## Non-games: เบราว์เซอร์และเครื่องมือ
+
+Discord desktop ดึงลิสต์ชุดที่สองที่เล็กกว่ามากควบคู่กับลิสต์เกม —
+`https://cdn.discordapp.com/detectables/non-games-v1.json` (Firefox, Chrome, Opera GX, Comet,
+GearUP, Discord Quest Helper) ลิสต์นี้ถูกป้อนเข้าตัวตรวจโปรเซสตัวเดียวกัน แต่เมื่อ match
+จะถูกจัดเป็น *running non-game*: Discord ไม่ขึ้นสถานะ "กำลังเล่น" ให้ แต่โค้ด quest ของมันรวม
+running games กับ running non-games เข้าด้วยกันก่อนเช็คว่าเดิน quest ไหน quest แบบ "play on
+desktop" ที่ผูกกับ id พวกนี้จึงนับเหมือนกัน เครื่องมือนี้ดึงลิสต์นี้ด้วยและแสดงด้วยป้าย `non-game`
+
+สองเรื่องที่ควรรู้ก่อนพึ่งมัน:
+
+- id **ไม่ใช่** ตัวเดียวกับในลิสต์เกม Firefox อยู่ทั้งสองลิสต์ — ในลิสต์เกมไม่มี executable เลย
+  (จึง match ไม่ได้) ส่วนในลิสต์ non-games อยู่คนละ id พร้อม `firefox.exe` / `firefox.app`
+  quest ผูกกับ id ฝั่ง non-games เท่านั้น
+- heartbeat ของ quest ทุกครั้งที่ client ส่ง มี path ของโปรเซสที่ match **และ
+  `executable_fingerprint`** ที่คำนวณใน native (module อ่านไฟล์ แฮช และอ่าน signer ของ
+  Authenticode) ฝั่ง server ของ Discord ตรวจ fingerprint นั้นเทียบกับเบราว์เซอร์จริงหรือไม่
+  ยังไม่รู้ placeholder ส่ง fingerprint ของไฟล์ 5 KB ที่ไม่มีลายเซ็น และทุกรายการใน non-games
+  เป็นสินค้าแบบ sponsored "ติดตั้งเบราว์เซอร์นี้" — quest ประเภทที่ fingerprint มีไว้เพื่อตรวจพอดี
+  ให้ถือว่า quest ของ non-game เป็น *ตรวจจับได้ แต่ยังไม่ยืนยันว่าได้ progress*
+- ลิสต์นี้ไม่มีไอคอนมาให้ tool จะถาม `/applications/<id>/rpc` สาธารณะของ Discord ทุกครั้งที่
+  refresh: Chrome, Opera GX, Comet และ Discord Quest Helper มีรูป ส่วน **Firefox กับ GearUP
+  ไม่มีรูปแม้แต่ฝั่ง Discord เอง** หน้าต่างและแถวจึงแสดงตัวอักษรแรกแทน
+- executable ที่ Discord match เฉพาะเมื่อมี command line ประกอบ (`opera.exe
+  --with-feature:gx-post-mortem=on` ของ Opera GX) ถูกตัดออก เพราะ placeholder ที่รันด้วยชื่อ
+  ไม่มี argument นั้น executable ตัวอื่นของรายการยังอยู่
+
 ## อ่านต่อ
 
 - [สถาปัตยกรรมโค้ด](TH-Architecture) — โมดูลไหนทำอะไร invariant มีอะไรบ้าง

@@ -139,6 +139,14 @@ function row(game, extras) {
       ? "Added by its process path, not in Discord’s detectable list"
       : "Added from Steam, not in Discord’s detectable list";
     name.appendChild(tag);
+  } else if (game.source === "non-game") {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = "non-game";
+    tag.title =
+      "From Discord’s non-games list (browsers and tools). Discord never shows it as " +
+      "“Playing”, but a quest tied to this id still counts it as play on desktop";
+    name.appendChild(tag);
   }
   const exe = document.createElement("div");
   exe.className = "exe";
@@ -938,6 +946,7 @@ function renderMeta(meta) {
       meta.playableHere +
       " for " +
       state.os +
+      (meta.nonGames ? " · " + meta.nonGames + " non-games" : "") +
       " · updated " +
       timeAgo(meta.fetchedAt);
 }

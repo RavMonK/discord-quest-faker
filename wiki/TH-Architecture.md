@@ -35,14 +35,17 @@ CLI override อย่าง `--port` / `--headless` มีผลกับ confi
 
 | ลิสต์ | ที่มา |
 |---|---|
-| `detectable` | จาก Discord (cache ไว้ที่ `data/games.json`) |
+| `detectable` | จาก Discord (cache ไว้ที่ `data/games.json`): ลิสต์เกม บวกลิสต์ non-games (`source: 'non-game'`) ที่ดึงจาก `nonGamesUrl` |
 | `custom` | เพิ่มเอง (`data/custom-games.json`) |
 | `games` | ผลรวมของสองอันบน — ทุกส่วนอ่านจากอันนี้ |
 
 การ refresh จะแทนที่แค่ `detectable` แล้ว merge ใหม่ **เกมที่เพิ่มเองจึงไม่หาย**
 
 - `normalize()` ย่อ payload 12 MB เหลือแค่ field ที่ใช้ และ**ทิ้ง executable ที่มี `..`**
-  (ลิสต์นี้นักพัฒนาส่งเข้ามาเอง จึงเชื่อไม่ได้ 100%)
+  (ลิสต์นี้นักพัฒนาส่งเข้ามาเอง จึงเชื่อไม่ได้ 100%) และทิ้ง executable ที่มี `arguments`
+  ซึ่ง Discord match จาก command line ด้วย
+- ลิสต์ non-games เป็นลิสต์เสริม: `fetchNonGames()` ล้มเหลวแค่ log แล้วเก็บ non-games ชุดล่าสุดไว้
+  **ไม่นับ**ว่า refresh ล้มเหลว และ id ที่ลิสต์เกมมีอยู่แล้วชนะเสมอ
 - `fold()` ตัด accent ตอนค้นหา — ถ้าไม่มีอันนี้ `marvel tokon` จะหา `MARVEL Tōkon` ไม่เจอ
 - เขียนไฟล์แบบ atomic (`.tmp` แล้ว rename) และ **ถ้า refresh ล้มเหลวจะเก็บลิสต์เดิมไว้**
 

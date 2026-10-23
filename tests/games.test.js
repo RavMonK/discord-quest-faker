@@ -6,7 +6,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
-const { GameStore, normalize, fold, parseProcessPath, customGame, withDiscordDetails } = require('../src/games');
+const { GameStore, normalize, fold, parseProcessPath, customGame, withDiscordDetails, fetchJson } = require('../src/games');
 const { Spoofer } = require('../src/spoof');
 
 function tmpConfig() {
@@ -60,6 +60,92 @@ test('normalize: sorts games alphabetically by name', () => {
     { id: '2', name: 'Alpha Quest', executables: [{ name: 'b.exe' }] }
   ]);
   assert.deepEqual(games.map((g) => g.name), ['Alpha Quest', 'Zelda-like']);
+});
+
+test('normalize: tags a source when asked and drops executables that need a command line', () => {
+  // Opera GX's real non-games entry: Discord matches "opera.exe" only together with that
+  // argument, which a placeholder started by name alone never carries.
+  const games = normalize([{
+    id: '1461077510887309650',
+    name: 'Opera GX',
+    executables: [
+      { name: 'operagx/opera.exe', os: 'win32' },
+      { name: 'opera.exe', os: 'win32', arguments: '--with-feature:gx-post-mortem=on' },
+      { name: 'opera.exe', os: 'win32', arguments: '   ' }
+    ]
+  }], { source: 'non-game' });
+  assert.equal(games[0].source, 'non-game');
+  assert.deepEqual(games[0].executables.map((e) => e.name), ['operagx/opera.exe', 'opera.exe']);
+  assert.equal('source' in normalize([{ id: '1', name: 'Plain', executables: [{ name: 'a.exe' }] }])[0], false);
+});
+
+test('GameStore: refresh merges the non-games list and survives it failing', async (t) => {
+  const games = JSON.stringify([
+    { id: '1442729602559643668', name: 'Firefox', executables: [] },
+    { id: '1', name: 'Real Game', executables: [{ name: 'game.exe' }] }
+  ]);
+  const nonGames = JSON.stringify([
+    { id: '1491208267928703226', name: 'Firefox', executables: [{ name: 'firefox.exe', os: 'win32' }, { name: 'firefox.app', os: 'darwin' }] },
+    // an id the games list already owns must not be duplicated
+    { id: '1', name: 'Real Game again', executables: [{ name: 'game.exe', os: 'win32' }] }
+  ]);
+  let nonGamesBroken = false;
+  const api = http.createServer((req, res) => {
+    if (req.url === '/non-games' && nonGamesBroken) {
+      res.writeHead(500);
+      res.end('nope');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(req.url === '/non-games' ? nonGames : games);
+  });
+  await new Promise((resolve) => api.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => api.close(resolve)));
+
+  const config = tmpConfig();
+  config.apiUrl = 'http://127.0.0.1:' + api.address().port + '/detectable';
+  config.nonGamesUrl = 'http://127.0.0.1:' + api.address().port + '/non-games';
+  // the icon lookup goes to Discord's public /rpc; answer it here so the test stays offline,
+  // with a hash for Firefox and nothing for the other id (its icon is null on Discord too)
+  const rpcHits = [];
+  const fetcher = (url) => {
+    const m = /\/applications\/(\d+)\/rpc$/.exec(url);
+    if (!m) return fetchJson(url);
+    rpcHits.push(m[1]);
+    return Promise.resolve({ id: m[1], name: 'Firefox Browser', icon: m[1].startsWith('149') ? 'ab'.repeat(16) : null });
+  };
+  const store = new GameStore(config, { fetcher });
+
+  const result = await store.refresh();
+  assert.equal(result.ok, true);
+  assert.equal(result.nonGames, 2);
+  assert.deepEqual(store.games.map((g) => g.id), ['1491208267928703226', '1']);
+  const firefox = store.byId('1491208267928703226');
+  assert.equal(firefox.source, 'non-game');
+  assert.equal(firefox.name, 'Firefox', 'the list name wins over the application name');
+  assert.equal(firefox.icon, 'ab'.repeat(16));
+  assert.equal('namedByUser' in firefox, false);
+  assert.deepEqual(rpcHits, ['1491208267928703226'], 'only Discord-shaped ids are looked up');
+  assert.equal(store.byId('1').source, undefined);
+  assert.equal(store.search('firefox').items[0].source, 'non-game');
+  assert.equal(store.meta().nonGames, 1);
+
+  // the cache round-trips the tag, so a restart offline still shows the entry as a non-game
+  const reloaded = new GameStore(config, { fetcher });
+  assert.equal(reloaded.byId('1491208267928703226').source, 'non-game');
+
+  // the side list failing is not a failed refresh, and the last good non-games are kept
+  nonGamesBroken = true;
+  const again = await store.refresh();
+  assert.equal(again.ok, true);
+  assert.equal(store.byId('1491208267928703226').source, 'non-game');
+
+  // no url configured means no non-games at all
+  config.nonGamesUrl = '';
+  const bare = new GameStore(config, { fetcher });
+  bare.detectable = [];
+  await bare.refresh();
+  assert.equal(bare.byId('1491208267928703226'), null);
 });
 
 test('fold: strips accents and lowercases, so search matches diacritics', () => {

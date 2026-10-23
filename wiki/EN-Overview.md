@@ -9,7 +9,9 @@
 **Discord Quest Faker** is a tool that runs entirely on your own machine and does two things:
 
 1. **Fetches Discord's detectable-game list** from
-   `https://discord.com/api/v10/applications/detectable` (~10,400 games) and caches it as JSON.
+   `https://discord.com/api/v10/applications/detectable` (~10,400 games) and caches it as JSON,
+   plus Discord's small **non-games list** (Firefox, Chrome, Opera GX ... — browsers whose
+   quests count the same way).
 2. **Spawns placeholder processes** whose file name and path match one of that game's
    executables, so Discord's game detection reports the game as running and *"play game X for
    Y minutes"* quests progress.

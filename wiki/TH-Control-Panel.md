@@ -115,6 +115,7 @@
 | **▸** (หรือกดที่ชื่อเกม) | กางรายการ executable ทั้งหมด แล้ว Start/Stop ทีละตัวได้ |
 | ป้าย `steam` | เกมที่เพิ่มเองจาก Steam ไม่ได้อยู่ในลิสต์ detectable ของ Discord |
 | ป้าย `custom` | เกมที่เพิ่มเองโดยพิมพ์ path ของ process ไม่ได้อยู่ในลิสต์ detectable ของ Discord |
+| ป้าย `non-game` | มาจากลิสต์ non-games ของ Discord (Firefox, Chrome, Opera GX ...) Discord ไม่ขึ้นสถานะ "กำลังเล่น" ให้ แต่ quest ที่ผูกกับ id นั้นนับเป็น play on desktop |
 | ป้าย `launcher` | executable ที่เป็นตัวปล่อยเกม — ถูกจัดไว้ท้ายสุดเสมอ |
 | แถบสีซ้าย | เกมนั้นกำลังรันอยู่ |
 

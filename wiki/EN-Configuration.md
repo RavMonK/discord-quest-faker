@@ -13,6 +13,7 @@ state, not source.
   "host": "127.0.0.1",
   "openBrowser": true,
   "apiUrl": "https://discord.com/api/v10/applications/detectable",
+  "nonGamesUrl": "https://cdn.discordapp.com/detectables/non-games-v1.json",
   "gamesFile": "data/games.json",
   "customGamesFile": "data/custom-games.json",
   "refreshOnStart": true,
@@ -40,6 +41,7 @@ state, not source.
 | `host` | `127.0.0.1` | Loopback only: `127.0.0.1`, `localhost`, or `::1`; other addresses are rejected |
 | `openBrowser` | `true` | Open a browser on launch (`--headless` disables it) |
 | `apiUrl` | Discord's endpoint | Source of the detectable list |
+| `nonGamesUrl` | Discord's CDN | Discord's non-games list (browsers such as Firefox whose quests count as play on desktop); `""` leaves them out |
 | `gamesFile` | `data/games.json` | Where the game list is cached |
 | `customGamesFile` | `data/custom-games.json` | Where hand-added games live |
 | `refreshOnStart` | `true` | Refresh the list on every launch (in the background, so startup is not delayed) |

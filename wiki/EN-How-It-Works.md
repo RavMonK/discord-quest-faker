@@ -142,6 +142,34 @@ Restarts are capped at 500 (`MAX_RESTARTS`) so a permanently broken placeholder 
 - A game **absent from the detectable list** cannot be faked for quests (see
   [Steam games](EN-Steam-Games) for what is and is not possible there).
 
+## Non-games: browsers and tools
+
+The desktop client fetches a second, much smaller list beside the games list —
+`https://cdn.discordapp.com/detectables/non-games-v1.json` (Firefox, Chrome, Opera GX, Comet,
+GearUP, Discord Quest Helper). It feeds the same process observer, but a match is filed as a
+*running non-game*: Discord never shows it as "Playing", yet its quest code merges running games
+and running non-games before checking which quest they progress, so a "play on desktop" quest
+tied to one of those ids counts just the same. The tool fetches this list too and shows its
+entries with a `non-game` tag.
+
+Two things to know before leaning on it:
+
+- The ids are **not** the ones in the games list. Firefox appears in both — in the games list
+  with no executables at all (so it cannot be matched there), and in the non-games list under a
+  different id with `firefox.exe` / `firefox.app`. Only the non-games id carries the quest.
+- Every quest heartbeat the client sends carries the matched process's path **and an
+  `executable_fingerprint`** computed natively (the native module reads the file, hashes it and
+  reads its Authenticode signer). Whether Discord's server checks that fingerprint against the
+  real browser is not known. A placeholder sends the fingerprint of an unsigned 5 KB file, and
+  every non-games entry is a sponsored "install this browser" product — exactly the kind of
+  quest the fingerprint exists for. Treat non-game quests as *detectable, unverified*.
+- The list carries no icons. The tool asks Discord's public `/applications/<id>/rpc` for one on
+  every refresh: Chrome, Opera GX, Comet and Discord Quest Helper have one; **Firefox and GearUP
+  have none on Discord's side at all**, so their window and row show the initial letter.
+- An executable that Discord matches only together with a command line (Opera GX's
+  `opera.exe --with-feature:gx-post-mortem=on`) is left out, because a placeholder started by
+  name never carries it; the entry's other executables stay.
+
 ## Read next
 
 - [Architecture](EN-Architecture) — module responsibilities and the invariants
