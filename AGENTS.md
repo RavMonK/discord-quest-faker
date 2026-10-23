@@ -125,7 +125,17 @@ Six modules under `src/`, wired together in `index.js`:
   live config only; `fileState` holds what belongs on disk so flags never leak into the file.
   Only `EDITABLE_KEYS` are written back.
 - **games.js** — `GameStore` keeps three lists: `detectable` (from Discord), `custom` (added by
-  hand, in `data/custom-games.json`), and `games` (the merge that everything else reads). A list
+  hand, in `data/custom-games.json`), and `games` (the merge that everything else reads).
+  `detectable` is two Discord lists in one: the games list (`apiUrl`) and the non-games list
+  (`nonGamesUrl`, `cdn.discordapp.com/detectables/non-games-v1.json` - Firefox, Chrome, Opera
+  GX and three more, tagged `source: 'non-game'`). `fetchNonGames()` is a side fetch: its
+  failure logs and keeps the last good non-games, never fails the refresh, and an id the games
+  list already owns wins. The list has no icon hashes, so `fetchNonGames()` fills them from
+  Discord's public `/applications/<id>/rpc` (via `withDiscordDetails()`, list name kept);
+  Firefox and GearUP have no icon there either. `GameStore` takes its `fetcher` as a
+  constructor option so tests can answer those lookups offline. `normalize()` also drops an executable carrying `arguments` - Discord
+  matches those on the command line too, which a placeholder started by name never has.
+  A list
   refresh replaces `detectable` and re-merges, so custom entries survive (a custom entry on a
   detectable id adds its executables to that entry instead of replacing it). Custom entries come
   from Steam (`steam.js`) or from a process path typed by hand (`customGame()`, `source: 'custom'`,
@@ -294,7 +304,20 @@ Other invariants in `spoof.js`:
 - A detectable entry can list **no executables at all** - EA Sports FC 27
   (`1531874756096295054`) had `"executables": []` and only third-party SKUs while its quest
   was live. `normalize()` drops such entries, and no process name can match them, so nothing
-  here gets them detected. Tried and failed: starting the placeholder with the Steam SKU's
+  here gets them detected. Firefox is the other case: its games-list entry
+  (`1442729602559643668`) has no executables either, and the real one lives in the
+  **non-games list** under a different id (`1491208267928703226`, `firefox.exe` /
+  `firefox.app`). Reverse-engineered from the desktop client's bundle: the client feeds both
+  lists to the same native process observer, files a non-games match as a *running non-game*
+  (never shown as "Playing"), and `getActivelyProgressingPlayOnDesktopQuests()` merges running
+  games and running non-games before matching quest application ids - so the non-games id
+  earns quest progress. Every quest heartbeat (`POST /quests/<id>/heartbeat`) also carries
+  `executable_path` and an `executable_fingerprint` computed in `discord_utils.node`
+  (`GetExecutableFingerprintForProcess`; strings around it name `ReadFileToBuffer`,
+  `BCryptHashData`/`SHA256`, `GetSignerInfo` + `WinVerifyTrust`), always on for the desktop
+  client. Whether the server checks that fingerprint is **unknown**; every non-games entry is a
+  sponsored "install this browser" quest, so call non-game quests detectable, not verified.
+  Tried and failed: starting the placeholder with the Steam SKU's
   `SteamAppId`/`SteamGameId` in its environment (the variables did reach the process - read
   back from its PEB - Discord just ignores them); that code was removed, do not re-add it.
   Rich Presence over the IPC pipe was rejected by the user as a ban risk - do not add it

@@ -316,7 +316,7 @@ async function main() {
     const { total, items } = store.search(query, { limit: 40 });
     console.log('\n' + total + ' game(s) detectable on ' + OS_KEY + (query ? ' matching "' + query + '"' : '') + ':\n');    for (const game of items) {
       const executables = Spoofer.candidates(game);
-      console.log('  ' + game.name.padEnd(44) + game.id);
+      console.log('  ' + game.name.padEnd(44) + game.id + (game.source === 'non-game' ? '  (non-game)' : ''));
       // the index shown here is what --exe <n> expects
       executables.forEach((exe, i) => {
         console.log('      [' + i + '] ' + exe.name + (exe.isLauncher ? '  (launcher)' : ''));

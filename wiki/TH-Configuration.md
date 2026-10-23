@@ -13,6 +13,7 @@
   "host": "127.0.0.1",
   "openBrowser": true,
   "apiUrl": "https://discord.com/api/v10/applications/detectable",
+  "nonGamesUrl": "https://cdn.discordapp.com/detectables/non-games-v1.json",
   "gamesFile": "data/games.json",
   "customGamesFile": "data/custom-games.json",
   "refreshOnStart": true,
@@ -40,6 +41,7 @@
 | `host` | `127.0.0.1` | เฉพาะ loopback: `127.0.0.1`, `localhost` หรือ `::1`; ค่าอื่นถูกปฏิเสธ |
 | `openBrowser` | `true` | เปิดเบราว์เซอร์ให้อัตโนมัติ (`--headless` = ปิด) |
 | `apiUrl` | endpoint ของ Discord | แหล่งของลิสต์ detectable |
+| `nonGamesUrl` | CDN ของ Discord | ลิสต์ non-games ของ Discord (เบราว์เซอร์อย่าง Firefox ที่ quest นับเป็น play on desktop); ใส่ `""` ถ้าไม่เอา |
 | `gamesFile` | `data/games.json` | ที่เก็บ cache รายชื่อเกม |
 | `customGamesFile` | `data/custom-games.json` | ที่เก็บเกมที่เพิ่มเอง |
 | `refreshOnStart` | `true` | ดึงลิสต์ใหม่ทุกครั้งที่เปิด (แบบ background — ไม่ทำให้เปิดช้า) |

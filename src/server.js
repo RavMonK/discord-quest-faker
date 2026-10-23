@@ -203,6 +203,7 @@ function createServer({ config, store, spoofer, queue }) {
       icon: game ? game.icon : null,
       iconUrl: game ? game.iconUrl || null : null,
       custom: game ? Boolean(game.custom) : false,
+      source: game ? game.source || 'discord' : 'discord',
       missing: !game
     };
   });

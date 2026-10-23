@@ -119,6 +119,7 @@ It is seeded from `defaultDurationMinutes` in `config.json`.
 | **▸** (or clicking the name) | Expands the executable list for per-executable Start/Stop |
 | `steam` tag | Added from Steam; not in Discord's detectable list |
 | `custom` tag | Added by typing its process path; not in Discord's detectable list |
+| `non-game` tag | From Discord's non-games list (Firefox, Chrome, Opera GX ...). Discord never shows it as "Playing", but a quest tied to that id counts it as play on desktop |
 | `launcher` tag | A bootstrapper/launcher executable — always sorted last |
 | Left accent bar | That game is currently running |
 

@@ -35,14 +35,17 @@ belongs on disk so flags never leak into the file. Only `EDITABLE_KEYS` are writ
 
 | List | Source |
 |---|---|
-| `detectable` | Straight from Discord (cached in `data/games.json`) |
+| `detectable` | Straight from Discord (cached in `data/games.json`): the games list plus the non-games list (`source: 'non-game'`), fetched from `nonGamesUrl` |
 | `custom` | Added by hand (`data/custom-games.json`) |
 | `games` | The merge of both — what everything else reads |
 
 A refresh replaces only `detectable` and re-merges, so **custom entries survive**.
 
 - `normalize()` strips the 12 MB payload down to the fields in use and **drops executables
-  containing `..`** — the list is developer-submitted, so it is not fully trusted.
+  containing `..`** — the list is developer-submitted, so it is not fully trusted. It also drops
+  an executable that carries `arguments`, which Discord matches on the command line too.
+- The non-games list is a side list: `fetchNonGames()` logging a failure and keeping the last
+  good non-games is **not** a failed refresh, and an id the games list already owns wins.
 - `fold()` strips accents for search; without it `marvel tokon` cannot find `MARVEL Tōkon`.
 - Writes are atomic (`.tmp` + rename), and **a failed refresh keeps the old list**.
 

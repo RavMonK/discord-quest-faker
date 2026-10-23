@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.7.0 - 2026-10-23
+
+### Added
+
+- **Discord's non-games list.** Besides the games list, the desktop client fetches
+  `https://cdn.discordapp.com/detectables/non-games-v1.json` — six browsers and tools (Firefox,
+  Chrome, Opera GX, Comet, GearUP, Discord Quest Helper). Discord never shows them as
+  "Playing", but its quest code counts a running non-game exactly like a running game, so a
+  "play on desktop" quest tied to one of those ids progresses. The tool now fetches that list
+  too (`nonGamesUrl` in `config.json`, `""` to leave it out), tags the entries `non-game` in
+  the panel and `(non-game)` in `--list`, and fills their icons from Discord's public
+  `/applications/<id>/rpc` (Firefox and GearUP have none on Discord's side).
+- This is why **Firefox** could not be found before: its games-list entry has
+  `"executables": []`, and the entry that carries `firefox.exe` lives in the non-games list
+  under a different id (`1491208267928703226`). Typing `firefox.exe` as a custom path now
+  points at that entry instead of saving a duplicate.
+
+### Changed
+
+- `normalize()` drops an executable that carries `arguments` (Opera GX's
+  `opera.exe --with-feature:gx-post-mortem=on`): Discord matches those on the command line
+  too, which a placeholder started by name never has. The entry's other executables stay.
+- A failed non-games fetch logs and keeps the last good non-games; it never fails the refresh.
+  An id the games list already owns always wins.
+- `GameStore` takes its `fetcher` as a constructor option, so tests answer the `/rpc` lookups
+  offline.
+
+### Caveat
+
+Every quest heartbeat the client sends carries the matched process's path and an
+`executable_fingerprint` computed natively (file hash plus Authenticode signer). Whether
+Discord's server checks it is not known, and every non-games entry is a sponsored
+"install this browser" quest. Treat non-game quests as *detectable, unverified* — see
+"Non-games" in the How-it-works wiki page.
+
 ## 1.6.1 - 2026-10-02
 
 ### Fixed
