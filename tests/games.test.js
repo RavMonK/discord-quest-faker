@@ -127,7 +127,7 @@ test('GameStore: refresh merges the non-games list and survives it failing', asy
   assert.equal('namedByUser' in firefox, false);
   assert.deepEqual(rpcHits, ['1491208267928703226'], 'only Discord-shaped ids are looked up');
   assert.equal(store.byId('1').source, undefined);
-  assert.equal(store.search('firefox').items[0].source, 'non-game');
+  assert.equal(store.search('firefox', { osKey: 'win32' }).items[0].source, 'non-game');
   assert.equal(store.meta().nonGames, 1);
 
   // the cache round-trips the tag, so a restart offline still shows the entry as a non-game
